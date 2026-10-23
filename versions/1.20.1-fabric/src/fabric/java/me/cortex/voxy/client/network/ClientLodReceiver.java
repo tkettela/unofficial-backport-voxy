@@ -145,7 +145,7 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
         synchronized (s.timestamps) {
             known = s.timestamps.size();
         }
-        return "Server LoD: " + s.inFlight.get() + " in flight, " + s.requested.size() + " requested, " + known + " cached, " + pushedChunks.get() + " live updates, radius " + serverRadius;
+        return "Server LoD: " + (receivedRate / 1024) + " KB/s, " + s.inFlight.get() + "/" + window + " in flight, " + s.requested.size() + " requested, " + known + " cached, " + pushedChunks.get() + " live updates, radius " + serverRadius;
     }
 
     private static void onConfig(Minecraft client, ClientPacketListener handler, FriendlyByteBuf buf, PacketSender sender) {
@@ -159,6 +159,7 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
         client.execute(() -> {
             serverRadius = radius;
             serverMaxInFlight = Math.max(1, maxInFlight);
+            window = Math.min(64, serverMaxInFlight);
             serverSupported = true;
             Logger.info("Server supports voxy LoD streaming, radius " + radius + " chunks");
         });
@@ -223,12 +224,14 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
         //Chunks inside the vanilla render distance get ingested by voxy normally
         int vanillaRadius = client.options.getEffectiveRenderDistance();
 
+        updateWindow(s, instance);
+
         FriendlyByteBuf buf = null;
         int count = 0;
         int countIndex = 0;
         int scanned = 0;
         long radiusSq = (long) radius * radius;
-        while (s.inFlight.get() < serverMaxInFlight && count < MAX_REQUESTS_PER_PACKET && scanned++ < 16384) {
+        while (s.inFlight.get() < window && count < MAX_REQUESTS_PER_PACKET && scanned++ < 16384) {
             long offset = s.nextOffset(radius);
             if (offset == Long.MAX_VALUE) {
                 if (s.spiralFinishedAt == -1) {
@@ -290,7 +293,38 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
     private static final AtomicInteger pushedChunks = new AtomicInteger();
 
     //Called from the netty thread, decodes the sections and hands them straight to the ingest service
+    //Adapt how many requests we keep outstanding to how fast voxy can convert what we receive:
+    // grow while the ingest queue is small and we use the whole window, shrink when the ingest queue backs up
+    private static void updateWindow(DimensionSession s, me.cortex.voxy.commonImpl.VoxyInstance instance) {
+        long now = System.currentTimeMillis();
+        if (now - lastWindowUpdate < 500) return;
+        lastWindowUpdate = now;
+
+        long bytes = receivedBytes.getAndSet(0);
+        receivedRate = bytes * 1000 / Math.max(1, now - lastRateSample);
+        lastRateSample = now;
+
+        int backlog = instance.getIngestService().getTaskCount();
+        if (backlog > INGEST_BACKLOG_HIGH) {
+            window = Math.max(MIN_WINDOW, window * 3 / 4);
+        } else if (backlog < INGEST_BACKLOG_LOW && s.inFlight.get() >= window - 8) {
+            window = Math.min(serverMaxInFlight, window + 32);
+        }
+        window = Math.max(1, Math.min(window, serverMaxInFlight));
+    }
+
+    private static final int MIN_WINDOW = 16;
+    //Ingest backlog is counted in sections (24 per overworld chunk)
+    private static final int INGEST_BACKLOG_HIGH = 12_000;
+    private static final int INGEST_BACKLOG_LOW = 4_000;
+    private static volatile int window = 64;
+    private static long lastWindowUpdate;
+    private static long lastRateSample = System.currentTimeMillis();
+    private static volatile long receivedRate;
+    private static final java.util.concurrent.atomic.AtomicLong receivedBytes = new java.util.concurrent.atomic.AtomicLong();
+
     private static void onChunk(Minecraft client, ClientPacketListener handler, FriendlyByteBuf buf, PacketSender sender) {
+        receivedBytes.addAndGet(buf.readableBytes());
         var dimension = buf.readResourceLocation();
         long pos = buf.readLong();
         byte status = buf.readByte();

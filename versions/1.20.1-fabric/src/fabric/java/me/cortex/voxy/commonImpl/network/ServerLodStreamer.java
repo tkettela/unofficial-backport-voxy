@@ -88,6 +88,15 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         private final AtomicLong outboxBytes = new AtomicLong();
         private final AtomicInteger reading = new AtomicInteger();
         private long tokens;
+        //Adaptive send rate in (uncompressed) bytes per second
+        private double rate = INITIAL_SEND_RATE;
+        private boolean wasRateLimited;
+        private long sentBytes;
+
+        //Dont prepare more than ~2 seconds of data ahead of what the connection can take
+        private long maxBacklog() {
+            return Math.max(4_000_000L, (long) (this.rate * 2));
+        }
 
         private void enqueue(FriendlyByteBuf buf) {
             this.enqueue(new Outgoing(buf, null, 0, Outgoing.NOT_CACHEABLE, 0));
@@ -116,6 +125,28 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
     private static volatile ExecutorService WORKERS;
     private static int roundRobinOffset;
     private static int tickCounter;
+    private static int readBudget = 64;
+
+    //Adaptive send rate bounds (uncompressed bytes per second)
+    private static final double INITIAL_SEND_RATE = 1_000_000;
+    private static final double MIN_SEND_RATE = 64_000;
+    private static final long MAX_SEND_RATE = 128_000_000;
+    //Below this much free space in the netty write buffer the connection is considered saturated
+    private static final int CONGESTION_FREE_BYTES = 16 * 1024;
+
+    private static io.netty.channel.Channel channelOf(ServerPlayer player) {
+        try {
+            var connection = ((me.cortex.voxy.commonImpl.network.mixin.AccessorServerGamePacketListener) player.connection).voxy$getConnection();
+            return ((me.cortex.voxy.commonImpl.network.mixin.AccessorConnection) connection).voxy$getChannel();
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static boolean isCongested(io.netty.channel.Channel channel) {
+        if (channel == null) return false;
+        return !channel.isWritable() || channel.bytesBeforeUnwritable() < CONGESTION_FREE_BYTES;
+    }
 
     //Per dimension: chunk pos -> LastUpdate timestamp of the stored chunk (or CACHED_MISSING), lets us answer
     // "unchanged"/"missing" without touching the disk. Only accessed from the server thread.
@@ -158,7 +189,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
             Logger.info("Voxy server LoD streaming disabled");
             return;
         }
-        int threads = ServerLodConfig.CONFIG.workerThreads;
+        int threads = ServerLodConfig.CONFIG.getWorkerThreads();
         AtomicInteger counter = new AtomicInteger();
         WORKERS = Executors.newFixedThreadPool(threads, r -> {
             var thread = new Thread(r, "Voxy LoD Streaming Worker #" + counter.incrementAndGet());
@@ -167,7 +198,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
             return thread;
         });
         ServerChunkChangeTracker.setEnabled(true);
-        Logger.info("Voxy server LoD streaming enabled, radius " + ServerLodConfig.CONFIG.maxRadiusChunks + " chunks");
+        Logger.info("Voxy server LoD streaming enabled (adaptive), radius " + ServerLodConfig.CONFIG.maxRadiusChunks + " chunks, " + threads + " worker threads");
     }
 
     private static void onServerStopping(MinecraftServer server) {
@@ -276,8 +307,9 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
 
         var states = PLAYERS.entrySet().toArray(new Map.Entry[0]);
 
-        //Send what is ready, rate limited per player
-        long refill = Math.max(1, config.maxBytesPerSecondPerPlayer / 20);
+        //Send what is ready. The send rate adapts to each player's connection: it grows while the connection keeps
+        // up and drops as soon as the network buffer starts filling up, so gameplay packets are never stuck behind LoDs
+        long rateCap = config.maxBytesPerSecondPerPlayer > 0 ? config.maxBytesPerSecondPerPlayer : MAX_SEND_RATE;
         for (var entry : states) {
             var state = (PlayerState) entry.getValue();
             var player = server.getPlayerList().getPlayer((UUID) entry.getKey());
@@ -285,21 +317,42 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
                 PLAYERS.remove((UUID) entry.getKey());
                 continue;
             }
-            state.tokens = Math.min(state.tokens + refill, config.maxBytesPerSecondPerPlayer);
-            while (state.tokens > 0) {
+            var channel = channelOf(player);
+            boolean congested = isCongested(channel);
+            if (congested) {
+                state.rate = Math.max(MIN_SEND_RATE, state.rate * 0.85);
+            } else if (state.wasRateLimited) {
+                state.rate = Math.min(rateCap, state.rate * 1.05 + 16_384);
+            }
+            state.rate = Math.min(state.rate, rateCap);
+            state.tokens = Math.min(state.tokens + (long) (state.rate / 20), (long) (state.rate / 4) + MAX_PACKET_SIZE);
+            while (state.tokens > 0 && !isCongested(channel)) {
                 var out = state.outbox.poll();
                 if (out == null) break;
                 int size = out.buf.readableBytes();
                 state.tokens -= size;
                 state.outboxBytes.addAndGet(-size);
+                state.sentBytes += size;
                 rememberTimestamp(server, out);
                 ServerPlayNetworking.send(player, CHUNK, out.buf);
             }
+            //Only speed up if we actually had more to send than the rate allowed
+            state.wasRateLimited = !state.outbox.isEmpty() && !congested;
         }
 
+        //Adapt the disk read budget to the server load, LoDs must never make the server lag
+        if (tickCounter % 20 == 0) {
+            float mspt = server.getAverageTickTime();
+            if (mspt > config.targetTickTimeMs) {
+                readBudget = Math.max(4, readBudget * 2 / 3);
+            } else if (mspt < config.targetTickTimeMs * 0.75f) {
+                readBudget = Math.min(config.maxChunkReadsPerTick, readBudget + 32);
+            }
+        }
+        readBudget = Math.min(readBudget, config.maxChunkReadsPerTick);
+
         //Start new reads, round robin between players so one player cannot starve the others
-        int budget = config.maxChunkReadsPerTick;
-        long maxBacklog = config.maxBytesPerSecondPerPlayer * 2L;
+        int budget = readBudget;
         boolean progress = true;
         roundRobinOffset++;
         while (budget > 0 && progress) {
@@ -309,7 +362,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
                 var state = (PlayerState) entry.getValue();
                 if (state.pending.isEmpty()) continue;
                 //Backpressure: dont read more if the player cannot receive it fast enough
-                if (state.outboxBytes.get() > maxBacklog || state.reading.get() >= config.maxInFlightPerPlayer) continue;
+                if (state.outboxBytes.get() > state.maxBacklog() || state.reading.get() >= config.maxInFlightPerPlayer) continue;
                 var player = server.getPlayerList().getPlayer((UUID) entry.getKey());
                 if (player == null) continue;
                 //Answers from the timestamp cache dont cost a disk read
@@ -420,7 +473,6 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
     private static void pushChangedChunks(MinecraftServer server) {
         int viewDistance = server.getPlayerList().getViewDistance();
         long maxRadius = ServerLodConfig.CONFIG.maxRadiusChunks;
-        long maxBacklog = ServerLodConfig.CONFIG.maxBytesPerSecondPerPlayer * 2L;
         ServerChunkChangeTracker.drain(server, (level, pos) -> {
             LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(pos), ChunkPos.getZ(pos));
             if (chunk == null) return;//Unloaded since, it will be read from disk with its new timestamp when requested
@@ -429,7 +481,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
                 var player = server.getPlayerList().getPlayer(entry.getKey());
                 if (player == null || player.serverLevel() != level) continue;
                 var state = entry.getValue();
-                if (state.outboxBytes.get() > maxBacklog) continue;//Player is already behind, it will catch up on reconnect
+                if (state.outboxBytes.get() > state.maxBacklog()) continue;//Player is already behind, it will catch up on reconnect
                 int dx = ChunkPos.getX(pos) - player.chunkPosition().x;
                 int dz = ChunkPos.getZ(pos) - player.chunkPosition().z;
                 //Inside the view distance the client gets the chunk (and voxy ingests it) the vanilla way
