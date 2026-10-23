@@ -1,0 +1,6 @@
+{
+  "voxy.config.general.serverLod": "LoDs du serveur",
+  "voxy.config.general.serverLod.tooltip": "Demande les LoDs aux serveurs qui ont Voxy installé : tu vois le terrain déjà généré par le serveur sans avoir besoin d'y aller",
+  "voxy.config.general.serverLodRadius": "Rayon des LoDs serveur",
+  "voxy.config.general.serverLodRadius.tooltip": "Rayon maximum (en chunks) des LoDs demandés au serveur (aussi limité par la config du serveur et la distance de rendu Voxy)"
+}

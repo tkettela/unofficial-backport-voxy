@@ -25,6 +25,10 @@ import static org.lwjgl.opengl.GL45C.*;
 
 public class IrisVoxyRenderPipeline extends AbstractRenderPipeline {
     private final IrisVoxyRenderPipelineData data;
+
+    public IrisVoxyRenderPipelineData _getData() {
+        return this.data;
+    }
     private final FullscreenBlit depthBlit;
     public final DepthFramebuffer fbTranslucent = new DepthFramebuffer(this.fb.getFormat());
 

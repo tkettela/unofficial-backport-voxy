@@ -208,7 +208,17 @@ public class VoxyRenderSystem {
         }
 
         //cameraY += 100;
-        var voxyProjection = computeProjectionMat(this.properties, vanillaProjection);
+        float far = 3000 * 16;
+        //Shader packs can request a far plane fitted to the voxy render distance (better depth precision)
+        if (this.pipeline instanceof IrisVoxyRenderPipeline ivrp) {
+            if (ivrp._getData().useDynamicFarPlane) {
+                far = (VoxyConfig.CONFIG.sectionRenderDistance * 32 + 2) * ((float) Math.sqrt(3)) * 16;
+            }
+        }
+
+        float near = getRenderDistance()<=32.0f?8f:16f;
+        near = VoxyClient.disableSodiumChunkRender()?0.1f:near;
+        var voxyProjection = computeProjectionMat(this.properties, vanillaProjection, near, far);
 
         int[] dims = new int[4];
         glGetIntegerv(GL_VIEWPORT, dims);
@@ -230,7 +240,7 @@ public class VoxyRenderSystem {
 
         viewport
                 .setVanillaProjection(vanillaProjection)
-                .setProjection(voxyProjection)
+                .setProjection(voxyProjection, near, far)
                 .setModelView(new Matrix4f(modelView))
                 .setCamera(cameraX, cameraY, cameraZ)
                 .setScreenSize(width, height)
@@ -435,16 +445,15 @@ public class VoxyRenderSystem {
         ).mulLocal(makeProjectionMatrix(nearVoxy, 16*3000));
     }*/
 
-    private static Matrix4f computeProjectionMat(RenderProperties properties, Matrix4fc base) {
+    //Backported from upstream voxy: near/far planes are computed by the caller and exposed to shaders (vxNearPlane/vxFarPlane)
+    private static Matrix4f computeProjectionMat(RenderProperties properties, Matrix4fc base, float nearPlane, float farPlane) {
 
         //this jank is to capture the extra crap they inject like viewbobbing
         var rawMCProj = RenderSystem.getProjectionMatrix();
         var extraProjection = rawMCProj.invert(new Matrix4f()).mul(base);
 
-        float near = getRenderDistance()<=32.0f?8f:16f;
-        near = VoxyClient.disableSodiumChunkRender()?0.1f:near;
-
-        float far = 16*3000;
+        float near = nearPlane;
+        float far = farPlane;
 
         /* jank way of just modifying the base raw
         if (true) {

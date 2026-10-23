@@ -31,10 +31,18 @@ public class VoxelIngestService {
         this.service = pool.createServiceNoCleanup(()->this::processJob, 5000, "Ingest service");
     }
 
+    //Backported from upstream voxy: queued tasks hold a ref on their world so it cannot be freed under them
     private void processJob() {
         var task = this.ingestQueue.pop();
-        task.world.markActive();
+        try {
+            this.processTask(task);
+        } finally {
+            //Release the ref we had acquired for the world
+            task.world.releaseRef();
+        }
+    }
 
+    private void processTask(IngestSection task) {
         var section = task.section;
         var vs = SECTION_CACHE.get().setPosition(task.cx, task.cy, task.cz);
 
@@ -120,11 +128,12 @@ public class VoxelIngestService {
             for (var section : chunk.getSections()) {
                 i++;
                 if (section == null || !shouldIngestSection(section, chunk.getPos().x, i, chunk.getPos().z)) continue;
-                engine.markActive();
+                engine.acquireRef();
                 this.ingestQueue.add(new IngestSection(chunk.getPos().x, i, chunk.getPos().z, engine, section, null, null));
                 try {
                     this.service.execute();
                 } catch (Exception e) {
+                    engine.releaseRef();//we must manually release
                     Logger.error("Executing had an error: assume shutting down, aborting",e);
                     break;
                 }
@@ -160,11 +169,12 @@ public class VoxelIngestService {
             //if (blNone && slNone) {
             //    continue;
             //}
-            engine.markActive();
+            engine.acquireRef();
             this.ingestQueue.add(new IngestSection(chunk.getPos().x, i, chunk.getPos().z, engine, section, bl, sl));//TODO: fixme, this is technically not safe todo on the chunk load ingest, we need to copy the section data so it cant be modified while being read
             try {
                 this.service.execute();
             } catch (Exception e) {
+                engine.releaseRef();//we must manually release
                 Logger.error("Executing had an error: assume shutting down, aborting",e);
                 break;
             }
@@ -178,6 +188,10 @@ public class VoxelIngestService {
 
     public void shutdown() {
         this.service.shutdown();
+        while (!this.ingestQueue.isEmpty()) {
+            //We need to manually release all our world refs
+            this.ingestQueue.pop().world.releaseRef();
+        }
     }
 
     //Utility method to ingest a chunk into the given WorldIdentifier or world
@@ -197,11 +211,13 @@ public class VoxelIngestService {
     }
 
     private boolean rawIngest0(WorldEngine engine, LevelChunkSection section, int x, int y, int z, DataLayer bl, DataLayer sl) {
+        engine.acquireRef();
         this.ingestQueue.add(new IngestSection(x, y, z, engine, section, bl, sl));
         try {
             this.service.execute();
             return true;
         } catch (Exception e) {
+            engine.releaseRef();//we must manually release
             Logger.error("Executing had an error: assume shutting down, aborting",e);
             return false;
         }

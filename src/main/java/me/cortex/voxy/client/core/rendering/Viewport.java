@@ -74,6 +74,17 @@ public abstract class Viewport <A extends Viewport<A>> {
         return (A) this;
     }
 
+    //Near/far planes of the voxy projection, exposed to shaders as vxNearPlane/vxFarPlane
+    public float nearPlane = 16;
+    public float farPlane = 16*3000;
+
+    public A setProjection(Matrix4f projection, float nearPlane, float farPlane) {
+        this.projection = projection;
+        this.nearPlane = nearPlane;
+        this.farPlane = farPlane;
+        return (A) this;
+    }
+
     public A setModelView(Matrix4fc modelView) {
         this.modelView.set(modelView);
         return (A) this;

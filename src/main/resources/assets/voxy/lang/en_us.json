@@ -15,6 +15,10 @@
 
   "voxy.config.general.ingest": "Chunk Ingest",
   "voxy.config.general.ingest.tooltip": "Enables or disables voxies ability to convert new chunks into LoDs",
+  "voxy.config.general.serverLod": "Server LoDs",
+  "voxy.config.general.serverLod.tooltip": "Request LoD data from servers that have voxy installed, lets you see terrain the server has generated without visiting it",
+  "voxy.config.general.serverLodRadius": "Server LoD Radius",
+  "voxy.config.general.serverLodRadius.tooltip": "Maximum radius in chunks of LoD data requested from the server (also limited by the server config and the voxy render distance)",
 
   "voxy.config.general.rendering": "Voxy Rendering",
   "voxy.config.general.rendering.tooltip": "Enables or disables voxy rendering",

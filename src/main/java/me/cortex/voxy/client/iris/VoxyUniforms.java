@@ -47,6 +47,23 @@ public class VoxyUniforms {
     public static void addUniforms(UniformHolder uniforms) {
         uniforms
                 .uniform1i(PER_FRAME, "vxRenderDistance", ()->Math.round(VoxyConfig.CONFIG.sectionRenderDistance*32))//In chunks
+                //Backported from upstream voxy (shader define version 3)
+                .uniform1f(PER_FRAME, "vxFarPlane", ()->{
+                    var getVrs = (IGetVoxyRenderSystem) Minecraft.getInstance().levelRenderer;
+                    var vrs = getVrs == null ? null : getVrs.voxy$getRenderSystem();
+                    if (vrs == null || vrs.getViewport() == null) {
+                        return 16.0f*3000;
+                    }
+                    return vrs.getViewport().farPlane;
+                })
+                .uniform1f(PER_FRAME, "vxNearPlane", ()->{
+                    var getVrs = (IGetVoxyRenderSystem) Minecraft.getInstance().levelRenderer;
+                    var vrs = getVrs == null ? null : getVrs.voxy$getRenderSystem();
+                    if (vrs == null || vrs.getViewport() == null) {
+                        return 16.0f;
+                    }
+                    return vrs.getViewport().nearPlane;
+                })
                 .uniformMatrix(PER_FRAME, "vxViewProj", VoxyUniforms::getViewProjection)
                 .uniformMatrix(PER_FRAME, "vxViewProjInv", new Inverted(VoxyUniforms::getViewProjection))
                 .uniformMatrix(PER_FRAME, "vxViewProjPrev", new PreviousMat(VoxyUniforms::getViewProjection))

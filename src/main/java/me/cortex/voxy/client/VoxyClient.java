@@ -16,6 +16,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public abstract class VoxyClient {
+    //Extra lines shown in the voxy section of the debug screen (used by loader specific features, e.g. server LoD streaming)
+    public static final java.util.List<java.util.function.Supplier<String>> EXTRA_DEBUG_LINES = new java.util.concurrent.CopyOnWriteArrayList<>();
     private static final HashSet<String> FREX = new HashSet<>();
     private static FileLock EXCLUSIVE_LOCK;
     public static void initVoxyClient() {

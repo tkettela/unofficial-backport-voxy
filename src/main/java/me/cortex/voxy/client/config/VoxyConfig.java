@@ -42,6 +42,11 @@ public class VoxyConfig
     public int cloudDistance = 0;
     public boolean dontUseSodiumBuilderThreads = false;
 
+    //Request LoD data from servers that have voxy installed (fabric 1.20.1 server LoD streaming)
+    public boolean serverLodEnabled = true;
+    //Maximum radius in chunks to request LoDs from the server (also limited by the server and the voxy render distance)
+    public int serverLodRadius = 256;
+
     public String ssaoMode;
 
     public boolean useEnvironmentalFog = true;

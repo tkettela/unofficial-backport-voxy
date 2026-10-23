@@ -43,6 +43,13 @@ public abstract class MixinDebugScreenOverlay {
         instance.addDebug(instanceLines);
         voxyLines.addAll(instanceLines);
 
+        for (var extra : me.cortex.voxy.client.VoxyClient.EXTRA_DEBUG_LINES) {
+            var line = extra.get();
+            if (line != null) {
+                voxyLines.add(line);
+            }
+        }
+
         if (vrs != null) {
             List<String> renderLines = new ArrayList<>();
             vrs.addDebugInfo(renderLines);

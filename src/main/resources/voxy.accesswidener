@@ -36,3 +36,7 @@ accessible field com/mojang/blaze3d/systems/RenderSystem$AutoStorageIndexBuffer 
 accessible class net/minecraft/client/multiplayer/ClientChunkCache$Storage
 accessible class com/mojang/blaze3d/platform/GlDebug$LogEntry
 #? }
+#? if fabric {
+# Voxy server LoD streaming
+accessible method net/minecraft/server/level/ChunkMap readChunk (Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;
+#? }
