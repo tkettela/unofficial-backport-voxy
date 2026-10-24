@@ -1,0 +1,34 @@
+name: Build the mod jar
+
+on:
+  push:
+    branches: [ server-lod ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build 1.20.1 Fabric
+        run: chmod +x gradlew && ./gradlew -I init.gradle :1.20.1-fabric:build -x test
+
+      - name: Upload the jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: unofficial-backport-voxy-1.20.1-fabric
+          path: versions/1.20.1-fabric/build/libs/voxy-*-fabric.jar
+          retention-days: 90

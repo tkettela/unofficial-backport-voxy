@@ -12,3 +12,5 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 The nether fog, toggle key and server name storage features are independent implementations of ideas from
 voxy-extra (https://github.com/ImGRUI/voxy-extra, LGPL-3.0), no code was copied.
 The background lod generation is an independent implementation, no code from Voxygen was used.
+Sending chunks to players once they finish generating follows an idea from LOD Server Support
+(https://github.com/VoX/lod-server-support, MIT), no code was copied.

@@ -6,12 +6,19 @@
     "commit": "${commit}",
     "buildtime": "${buildtime}"
   },
-  "name": "Voxy",
-  "description": "Far distance rendering mod utilising LoDs",
+  "name": "Unofficial Backport Voxy",
+  "description": "Unofficial 1.20.1 backport of Voxy (far distance rendering with LoDs by Cortex) with LoDs sent by the server, background terrain generation and impact presets. Not supported by Cortex.",
   "authors": [
-    "Cortex"
+    "Cortex (Voxy)"
   ],
-  "contact": {},
+  "contributors": [
+    "m3t4f1v3 (multiversion port)",
+    "tkettela (unofficial backport, server LoDs)"
+  ],
+  "contact": {
+    "sources": "https://github.com/tkettela/unofficial-backport-voxy",
+    "issues": "https://github.com/tkettela/unofficial-backport-voxy/issues"
+  },
   "license": "All-Rights-Reserved",
   "icon": "assets/voxy/icon.png",
   "environment": "*",
