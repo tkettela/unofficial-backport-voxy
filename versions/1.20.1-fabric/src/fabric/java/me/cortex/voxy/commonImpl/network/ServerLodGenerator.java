@@ -46,35 +46,19 @@ public final class ServerLodGenerator {
         private int ring, index;
         private boolean done;
         private long doneAt;
-        //Direction the player was looking when the spiral started, the first pass only covers that half
-        private double dirX, dirZ;
-        private int pass;
 
-        private void reset(ResourceKey<Level> dimension, int x, int z, double dirX, double dirZ) {
+        private void reset(ResourceKey<Level> dimension, int x, int z) {
             this.dimension = dimension;
             this.centerX = x;
             this.centerZ = z;
             this.ring = 0;
             this.index = 0;
             this.done = false;
-            this.dirX = dirX;
-            this.dirZ = dirZ;
-            this.pass = 0;
         }
 
-        //Generate what the player is heading towards first, the rest on the second pass
-        private boolean skipThisPass(int dx, int dz) {
-            return this.pass == 0 && (dx * this.dirX + dz * this.dirZ) < 0;
-        }
-
-        //Next offset of a square spiral, Long.MAX_VALUE once past the radius on the last pass
+        //Next offset of a square spiral (the closest rings all around the player first), Long.MAX_VALUE once past the radius
         private long next(int radius) {
-            if (this.ring > radius) {
-                if (this.pass != 0) return Long.MAX_VALUE;
-                this.pass = 1;
-                this.ring = 0;
-                this.index = 0;
-            }
+            if (this.ring > radius) return Long.MAX_VALUE;
             int r = this.ring;
             int dx, dz;
             if (r == 0) {
@@ -229,9 +213,7 @@ public final class ServerLodGenerator {
             var spiral = SPIRALS.computeIfAbsent(player.getUUID(), k -> new Spiral());
             if (spiral.dimension != dimension || Math.abs(px - spiral.centerX) > 8 || Math.abs(pz - spiral.centerZ) > 8
                     || (spiral.done && now - spiral.doneAt > RESCAN_INTERVAL_MS)) {
-                var look = player.getLookAngle();
-                double length = Math.sqrt(look.x * look.x + look.z * look.z);
-                spiral.reset(dimension, px, pz, length < 1.0E-3 ? 0 : look.x / length, length < 1.0E-3 ? 0 : look.z / length);
+                spiral.reset(dimension, px, pz);
             }
             if (spiral.done) continue;
 
@@ -251,7 +233,6 @@ public final class ServerLodGenerator {
                 int dx = ChunkPos.getX(offset);
                 int dz = ChunkPos.getZ(offset);
                 if ((long) dx * dx + (long) dz * dz > radiusSq) continue;
-                if (spiral.skipThisPass(dx, dz)) continue;
 
                 int cx = spiral.centerX + dx;
                 int cz = spiral.centerZ + dz;

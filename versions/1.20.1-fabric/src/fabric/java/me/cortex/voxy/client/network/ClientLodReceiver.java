@@ -85,34 +85,17 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             this.timestamps.defaultReturnValue(UNKNOWN_TIMESTAMP);
         }
 
-        //Direction the player was looking when the spiral started, the first pass only requests that half
-        private double dirX, dirZ;
-        private int pass;
-
-        private void restartSpiral(int x, int z, double dirX, double dirZ) {
+        private void restartSpiral(int x, int z) {
             this.centerX = x;
             this.centerZ = z;
             this.ring = 0;
             this.ringIndex = 0;
             this.spiralStarted = true;
-            this.dirX = dirX;
-            this.dirZ = dirZ;
-            this.pass = 0;
         }
 
-        private boolean skipThisPass(int dx, int dz) {
-            return this.pass == 0 && (dx * this.dirX + dz * this.dirZ) < 0;
-        }
-
-        //Returns the next position offset in the square spiral or null if past the radius
+        //Returns the next position offset in the square spiral (closest rings all around first), Long.MAX_VALUE if past the radius
         private long nextOffset(int radius) {
-            if (this.ring > radius) {
-                if (this.pass != 0) return Long.MAX_VALUE;
-                //Front half done, now everything else
-                this.pass = 1;
-                this.ring = 0;
-                this.ringIndex = 0;
-            }
+            if (this.ring > radius) return Long.MAX_VALUE;
             int r = this.ring;
             int dx, dz;
             if (r == 0) {
@@ -238,9 +221,7 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             while ((missingPos = s.missing.poll()) != null) {
                 s.requested.remove((long) missingPos);
             }
-            var look = player.getLookAngle();
-            double length = Math.sqrt(look.x * look.x + look.z * look.z);
-            s.restartSpiral(px, pz, length < 1.0E-3 ? 0 : look.x / length, length < 1.0E-3 ? 0 : look.z / length);
+            s.restartSpiral(px, pz);
             s.spiralFinishedAt = -1;
         }
 
@@ -266,7 +247,6 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             int dx = ChunkPos.getX(offset);
             int dz = ChunkPos.getZ(offset);
             if ((long) dx * dx + (long) dz * dz > radiusSq) continue;
-            if (s.skipThisPass(dx, dz)) continue;//What the player looks at first
             //Voxy only ingests vanilla chunks that have all their neighbours loaded, so the outer rings of the vanilla
             // render distance never get ingested, request those from the server too (the inner part is ingested normally)
             if (Math.max(Math.abs(dx), Math.abs(dz)) < vanillaRadius - VANILLA_EDGE_RINGS) continue;
