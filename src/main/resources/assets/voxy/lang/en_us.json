@@ -1,5 +1,13 @@
 {
   "voxy.config.title": "Voxy",
+  "voxy.config.preset": "Voxy impact (preset)",
+  "voxy.config.preset.tooltip": "Sets render distance, LoD quality, threads, ambient occlusion and server LoD radius at once. Auto picks the right level for this computer (graphics card, processor, memory) and uses the full radius the server offers. Changing one of these settings by hand switches to Custom.",
+  "voxy.config.preset.auto": "Auto",
+  "voxy.config.preset.low": "Low",
+  "voxy.config.preset.medium": "Medium",
+  "voxy.config.preset.high": "High",
+  "voxy.config.preset.ultra": "Ultra",
+  "voxy.config.preset.custom": "Custom",
 
   "voxy.config.general": "General",
   "voxy.config.rendering": "Rendering",

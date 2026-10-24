@@ -1,4 +1,12 @@
 {
+  "voxy.config.preset": "Impact de Voxy (préréglage)",
+  "voxy.config.preset.tooltip": "Règle d'un coup la distance de rendu, la qualité des LoDs, les threads, l'occlusion ambiante et le rayon des LoDs serveur. Auto choisit le bon niveau pour ce PC (carte graphique, processeur, mémoire) et prend tout le rayon proposé par le serveur. Modifier un de ces réglages à la main passe en Personnalisé.",
+  "voxy.config.preset.auto": "Auto",
+  "voxy.config.preset.low": "Faible",
+  "voxy.config.preset.medium": "Moyen",
+  "voxy.config.preset.high": "Élevé",
+  "voxy.config.preset.ultra": "Ultra",
+  "voxy.config.preset.custom": "Personnalisé",
   "voxy.config.general.serverLod": "LoDs du serveur",
   "voxy.config.general.serverLod.tooltip": "Demande les LoDs aux serveurs qui ont Voxy installé : tu vois le terrain déjà généré par le serveur sans avoir besoin d'y aller",
   "voxy.config.general.serverLodRadius": "Rayon des LoDs serveur",

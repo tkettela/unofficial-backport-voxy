@@ -29,6 +29,9 @@ public class VoxyConfig
 
     public static VoxyConfig CONFIG = loadOrCreate();
 
+    //"Voxy impact" preset (auto, low, medium, high, ultra, custom), see VoxyPresets. Null in old configs = custom
+    public String preset;
+
     public boolean enabled = true;
     public boolean enableRendering = true;
     public boolean ingestEnabled = true;
@@ -76,6 +79,10 @@ public class VoxyConfig
                 try (FileReader reader = new FileReader(path.toFile())) {
                     var conf = GSON.fromJson(reader, VoxyConfig.class);
                     if (conf != null) {
+                        if (conf.preset == null) {
+                            //Existing config from before presets: keep the settings the player already has
+                            conf.preset = "custom";
+                        }
                         conf.save();
                         return conf;
                     } else {
@@ -87,6 +94,8 @@ public class VoxyConfig
             }
             Logger.info("Config doesnt exist, creating new");
             var config = new VoxyConfig();
+            //New install: pick settings for this computer once the gpu is known (VoxyClient.initVoxyClient)
+            config.preset = "auto";
             config.save();
             return config;
         } else {

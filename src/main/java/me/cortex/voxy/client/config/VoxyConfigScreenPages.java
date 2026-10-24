@@ -36,6 +36,21 @@ public abstract class VoxyConfigScreenPages {
         List<OptionGroup> groups = new ArrayList<>();
         VoxyConfig storage = VoxyConfig.CONFIG;
 
+        //"Voxy impact" preset: sets all the heavy settings at once, the other options are refreshed to show the new values
+        groups.add(OptionGroup.createBuilder()
+                .add(PRESET_OPTION[0] = OptionImpl.createBuilder(VoxyPresets.Preset.class, storage)
+                        .setName(Component.translatable("voxy.config.preset"))
+                        .setTooltip(Component.translatable("voxy.config.preset.tooltip"))
+                        .setControl(opt -> new CyclingControl<>(opt, VoxyPresets.Preset.class, PRESET_LABELS))
+                        .setBinding((s, v) -> {
+                            VoxyPresets.applyLive(s, v);
+                            refreshAllOptions(groups);
+                        }, VoxyPresets::current)
+                        .setImpact(OptionImpact.HIGH)
+                        .build()
+                ).build()
+        );
+
         //General
         groups.add(OptionGroup.createBuilder()
                 .add(OptionImpl.createBuilder(boolean.class, storage)
@@ -73,6 +88,7 @@ public abstract class VoxyConfigScreenPages {
                                 1, v->Component.literal(Integer.toString(v))))
                         .setBinding((s, v)->{
                             s.serviceThreads = v;
+                            markCustom(s);
                             var instance = VoxyCommon.getInstance();
                             if (instance != null) {
                                 instance.updateDedicatedThreads();
@@ -112,7 +128,7 @@ public abstract class VoxyConfigScreenPages {
                         .setName(Component.translatable("voxy.config.general.serverLodRadius"))
                         .setTooltip(Component.translatable("voxy.config.general.serverLodRadius.tooltip"))
                         .setControl(opt->new SliderControl(opt, 2, 64, 1, v->Component.literal(Integer.toString(v*16))))
-                        .setBinding((s, v) -> s.serverLodRadius = v*16, s -> Math.max(2, Math.min(64, s.serverLodRadius/16)))
+                        .setBinding((s, v) -> { s.serverLodRadius = v*16; markCustom(s); }, s -> Math.max(2, Math.min(64, s.serverLodRadius/16)))
                         .setImpact(OptionImpact.MEDIUM)
                         .build()
                 ).add(OptionImpl.createBuilder(boolean.class, storage)
@@ -163,7 +179,7 @@ public abstract class VoxyConfigScreenPages {
                         .setName(Component.translatable("voxy.config.general.subDivisionSize"))
                         .setTooltip(Component.translatable("voxy.config.general.subDivisionSize.tooltip"))
                         .setControl(opt -> new SliderControl(opt, 0, SUBDIV_IN_MAX, 1, v -> Component.literal(Integer.toString(Math.round(ln2subDiv(v))))))
-                        .setBinding((s, v) -> s.subDivisionSize = ln2subDiv(v), s -> subDiv2ln(s.subDivisionSize))
+                        .setBinding((s, v) -> { s.subDivisionSize = ln2subDiv(v); markCustom(s); }, s -> subDiv2ln(s.subDivisionSize))
                         .setImpact(OptionImpact.HIGH)
                         .build()
                 ).add(OptionImpl.createBuilder(int.class, storage)
@@ -174,6 +190,7 @@ public abstract class VoxyConfigScreenPages {
                         .setBinding((s, v) -> {
                             // Value stored as float fraction
                             s.sectionRenderDistance = (((float)v) / 16.0f);
+                            markCustom(s);
 
                             var vrsh = (IGetVoxyRenderSystem) Minecraft.getInstance().levelRenderer;
                             if (vrsh != null) {
@@ -242,6 +259,7 @@ public abstract class VoxyConfigScreenPages {
                         .setControl(opt -> new CyclingControl<>(opt, SSAO.SSAOMode.class, SSAO_MODE_LABELS))
                         .setBinding((s, v) -> {
                             s.setSSAOMode(v);
+                            markCustom(s);
                             reloadActiveRenderer();
                         }, VoxyConfig::getSSAOMode)
                         .setImpact(OptionImpact.HIGH)
@@ -250,6 +268,37 @@ public abstract class VoxyConfigScreenPages {
                 ).build()
         );
         return new OptionPage(Component.translatable("voxy.config.title"), ImmutableList.copyOf(groups));
+    }
+
+    private static final Option<?>[] PRESET_OPTION = new Option<?>[1];
+
+    //A detail was changed by hand: the preset becomes custom (only the preset option is refreshed, other pending changes are kept)
+    private static void markCustom(VoxyConfig config) {
+        if (VoxyPresets.current(config) == VoxyPresets.Preset.CUSTOM) return;
+        VoxyPresets.markCustom(config);
+        if (PRESET_OPTION[0] != null) {
+            try { PRESET_OPTION[0].reset(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private static final Component[] PRESET_LABELS = {
+            Component.translatable("voxy.config.preset.auto"),
+            Component.translatable("voxy.config.preset.low"),
+            Component.translatable("voxy.config.preset.medium"),
+            Component.translatable("voxy.config.preset.high"),
+            Component.translatable("voxy.config.preset.ultra"),
+            Component.translatable("voxy.config.preset.custom")
+    };
+
+    //After a preset changed the config, make every option show its new value
+    private static void refreshAllOptions(List<OptionGroup> groups) {
+        for (var group : groups) {
+            for (var option : group.getOptions()) {
+                try {
+                    option.reset();
+                } catch (Throwable ignored) {}
+            }
+        }
     }
 
     private static void reloadActiveRenderer() {

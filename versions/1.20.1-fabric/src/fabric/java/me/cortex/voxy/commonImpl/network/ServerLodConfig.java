@@ -13,7 +13,7 @@ import java.nio.file.Path;
 //Server side configuration for LoD streaming, stored in config/voxy-server.json
 // The streamer adapts to the network, the client and the server load by itself, the limits here are only upper bounds.
 public class ServerLodConfig {
-    private static final int CURRENT_VERSION = 2;
+    private static final int CURRENT_VERSION = 3;
 
     private static final Gson GSON = new GsonBuilder()
             .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
@@ -56,6 +56,46 @@ public class ServerLodConfig {
     public int liveUpdateMinIntervalSeconds = 30;
     //Keep the "what is on disk" cache over restarts so the first reconnects after a restart stay fast
     public boolean persistTimestampCache = true;
+    //Preset: auto (picked from this machine on every start), low, balanced, high, max, custom (edited by hand)
+    public String preset = "auto";
+
+    //Settings a preset controls, editing one by hand turns the preset into custom
+    private static final java.util.List<String> PRESET_KEYS = java.util.List.of("maxRadiusChunks", "autoGenerateRadius",
+            "autoGenerateMaxConcurrent", "maxChunkReadsPerTick", "workerThreads", "targetTickTimeMs");
+
+    public static final java.util.List<String> PRESETS = java.util.List.of("auto", "low", "balanced", "high", "max");
+
+    //Sets the heavy settings at once, returns the level that was applied (auto resolves to one of the others)
+    public String applyPreset(String name) {
+        String level = name.toLowerCase(java.util.Locale.ROOT);
+        if (!PRESETS.contains(level)) throw new IllegalArgumentException("Unknown preset " + name + ", use one of " + PRESETS);
+        this.preset = level;
+        if (level.equals("auto")) {
+            int cores = Runtime.getRuntime().availableProcessors();
+            long heapGb = Runtime.getRuntime().maxMemory() / (1024L * 1024 * 1024);
+            if (cores <= 2 || heapGb < 3) level = "low";
+            else if (cores >= 8 && heapGb >= 10) level = "high";
+            else level = "balanced";
+        }
+        switch (level) {
+            case "low" -> setHeavy(128, 64, 2, 64, 2, 35);
+            case "high" -> setHeavy(384, 192, 0, 384, 0, 45);
+            case "max" -> setHeavy(512, 256, 16, 512, 0, 48);
+            default -> setHeavy(256, 128, 0, 256, 0, 40);
+        }
+        this.sanitize();
+        this.save();
+        return level;
+    }
+
+    private void setHeavy(int radius, int generateRadius, int generateConcurrent, int readsPerTick, int workers, int targetTickMs) {
+        this.maxRadiusChunks = radius;
+        this.autoGenerateRadius = generateRadius;
+        this.autoGenerateMaxConcurrent = generateConcurrent;
+        this.maxChunkReadsPerTick = readsPerTick;
+        this.workerThreads = workers;
+        this.targetTickTimeMs = targetTickMs;
+    }
 
     //Settings that can be changed in game with /voxylod config, in display order
     public static final java.util.List<String> EDITABLE = java.util.List.of(
@@ -98,6 +138,9 @@ public class ServerLodConfig {
         } catch (ReflectiveOperationException e) {
             throw new IllegalArgumentException("Unknown setting " + key);
         }
+        if (PRESET_KEYS.contains(key)) {
+            this.preset = "custom";
+        }
         this.sanitize();
         this.save();
         return this.get(key);
@@ -124,6 +167,10 @@ public class ServerLodConfig {
         }
         config.migrate();
         config.sanitize();
+        if ("auto".equals(config.preset)) {
+            //Re-detect on every start, the machine may have changed
+            Logger.info("Voxy server preset auto: using " + config.applyPreset("auto") + " for this machine");
+        }
         config.save();
         return config;
     }
@@ -138,6 +185,10 @@ public class ServerLodConfig {
             this.maxBytesPerSecondPerPlayer = defaults.maxBytesPerSecondPerPlayer;
             this.workerThreads = defaults.workerThreads;
             this.targetTickTimeMs = defaults.targetTickTimeMs;
+        }
+        if (this.configVersion < 3) {
+            //Configs from before presets keep their values
+            this.preset = "custom";
         }
         this.configVersion = CURRENT_VERSION;
     }

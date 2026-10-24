@@ -49,8 +49,14 @@ final class ServerLodCommand {
 
     static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("voxylod")
-                .requires(source -> source.hasPermission(2))
+                //Operators, or the owner of a singleplayer world (even without cheats)
+                .requires(source -> source.hasPermission(2) || (source.getPlayer() != null && source.getServer().isSingleplayerOwner(source.getPlayer().getGameProfile())))
                 .then(Commands.literal("status").executes(ServerLodCommand::status))
+                .then(Commands.literal("preset")
+                        .executes(ctx -> { ctx.getSource().sendSuccess(() -> Component.literal("Voxy preset: " + ServerLodConfig.CONFIG.preset + " (choices: " + String.join(", ", ServerLodConfig.PRESETS) + ")"), false); return 1; })
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(ServerLodConfig.PRESETS, builder))
+                                .executes(ServerLodCommand::preset)))
                 .then(Commands.literal("config")
                         .executes(ServerLodCommand::listConfig)
                         .then(Commands.argument("setting", StringArgumentType.word()).suggests(KEYS)
@@ -64,6 +70,19 @@ final class ServerLodCommand {
                 .then(Commands.literal("cache").then(Commands.literal("clear").executes(ServerLodCommand::clearCache))));
     }
 
+    private static int preset(CommandContext<CommandSourceStack> ctx) {
+        try {
+            String name = StringArgumentType.getString(ctx, "name");
+            String level = ServerLodConfig.CONFIG.applyPreset(name);
+            ServerLodStreamer.onConfigChanged(ctx.getSource().getServer());
+            ctx.getSource().sendSuccess(() -> Component.literal("Voxy: preset " + name + (name.equalsIgnoreCase(level) ? "" : " (" + level + " for this machine)") + " applied and saved"), true);
+            return 1;
+        } catch (IllegalArgumentException e) {
+            ctx.getSource().sendFailure(Component.literal("Voxy: " + e.getMessage()));
+            return 0;
+        }
+    }
+
     private static int status(CommandContext<CommandSourceStack> ctx) {
         for (var line : ServerLodStreamer.statusLines(ctx.getSource().getServer())) {
             ctx.getSource().sendSuccess(() -> Component.literal(line), false);
@@ -73,6 +92,7 @@ final class ServerLodCommand {
 
     private static int listConfig(CommandContext<CommandSourceStack> ctx) {
         ctx.getSource().sendSuccess(() -> Component.literal("Voxy server settings (/voxylod config <setting> <value>):").withStyle(ChatFormatting.GOLD), false);
+        ctx.getSource().sendSuccess(() -> Component.literal(" preset = ").append(Component.literal(ServerLodConfig.CONFIG.preset).withStyle(ChatFormatting.GREEN)).append(Component.literal(" (/voxylod preset <name>)")), false);
         for (var field : ServerLodConfig.EDITABLE) {
             var value = ServerLodConfig.CONFIG.get(field);
             ctx.getSource().sendSuccess(() -> Component.literal(" " + toFileName(field) + " = ").append(Component.literal(String.valueOf(value)).withStyle(ChatFormatting.AQUA)), false);

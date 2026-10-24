@@ -55,6 +55,13 @@ public abstract class VoxyClient {
 
             VoxyCommon.setInstanceFactory(VoxyClientInstance::new);
 
+            //The auto preset adapts to this computer, re-detected on every start now that the gpu is known
+            var config = me.cortex.voxy.client.config.VoxyConfig.CONFIG;
+            if (me.cortex.voxy.client.config.VoxyPresets.current(config) == me.cortex.voxy.client.config.VoxyPresets.Preset.AUTO) {
+                me.cortex.voxy.client.config.VoxyPresets.apply(config, me.cortex.voxy.client.config.VoxyPresets.Preset.AUTO);
+                config.save();
+            }
+
             if (!Capabilities.INSTANCE.subgroup) {
                 Logger.warn("GPU does not support subgroup operations, expect some performance degradation");
             }
