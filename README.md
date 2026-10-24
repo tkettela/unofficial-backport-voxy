@@ -152,7 +152,7 @@ The jar is `versions/1.20.1-fabric/build/libs/voxy-0.2.15-beta+1.20.1-fabric.jar
 
 ### Server
 1. A Fabric **1.20.1** server running on **Java 21**.
-2. Put this mod's jar and Fabric API in the server's `mods` folder (Sodium and Iris do **not** go on the server).
+2. Put this mod's jar and Fabric API in the server's `mods` folder.
 3. Start it once, `config/voxy-server.json` is created. The defaults are fine for most servers.
 4. Players need the **same jar** as the server.
 
