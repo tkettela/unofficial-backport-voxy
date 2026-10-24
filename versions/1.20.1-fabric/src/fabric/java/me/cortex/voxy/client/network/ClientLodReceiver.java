@@ -242,7 +242,9 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             int dx = ChunkPos.getX(offset);
             int dz = ChunkPos.getZ(offset);
             if ((long) dx * dx + (long) dz * dz > radiusSq) continue;
-            if (Math.max(Math.abs(dx), Math.abs(dz)) <= vanillaRadius) continue;
+            //Voxy only ingests vanilla chunks that have all their neighbours loaded, so the outer rings of the vanilla
+            // render distance never get ingested, request those from the server too (the inner part is ingested normally)
+            if (Math.max(Math.abs(dx), Math.abs(dz)) < vanillaRadius - VANILLA_EDGE_RINGS) continue;
             long pos = ChunkPos.asLong(s.centerX + dx, s.centerZ + dz);
             if (!s.requested.add(pos)) continue;
 
@@ -314,6 +316,8 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
     }
 
     private static final int MIN_WINDOW = 16;
+    //How many chunk rings at the edge of the vanilla render distance are also requested from the server
+    private static final int VANILLA_EDGE_RINGS = 3;
     //Ingest backlog is counted in sections (24 per overworld chunk)
     private static final int INGEST_BACKLOG_HIGH = 12_000;
     private static final int INGEST_BACKLOG_LOW = 4_000;

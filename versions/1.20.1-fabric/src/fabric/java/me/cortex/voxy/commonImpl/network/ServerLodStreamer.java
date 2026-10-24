@@ -429,7 +429,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         LevelChunk loaded = level.getChunkSource().getChunkNow(cx, cz);
         if (loaded != null && loaded.isUnsaved()) {
             state.enqueue(encodeLoaded(level, loaded, STATUS_DATA));
-            return false;
+            return true;//Encoding a loaded chunk happens on the server thread, count it in the budget
         }
 
         long known = request.knownTimestamp;
