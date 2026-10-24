@@ -639,6 +639,8 @@ public class ModelFactory {
 
         //TODO: THIS
         modelFlags |= isShaded?8:0;//model has AO and shade
+        //Is a fluid, used to pin fluid surfaces to one height across lod levels (integrated from voxy-seam-fix, MIT, HTRMC)
+        modelFlags |= blockState.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock?16:0;
 
         //modelFlags |= blockRenderLayer == RenderLayer.getSolid()?0:1;// should discard alpha
         MemoryUtil.memPutInt(uploadPtr, modelFlags); uploadPtr += 4;

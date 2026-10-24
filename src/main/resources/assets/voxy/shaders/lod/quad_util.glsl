@@ -135,13 +135,24 @@ void setupQuad(out QuadData quad, const in Quad rawQuad, uvec2 sPos, bool genera
     #ifdef USE_SINGLE_TRI
     faceSize *= 2;
     #endif
-    vec3 quadStart = extractPos(rawQuad);
-    float depthOffset = extractFaceIndentation(faceData);
+    //Seam fix (integrated from voxy-seam-fix, MIT, HTRMC): keep face indentation constant in world space instead of
+    // scaling it with the lod level, and pin fluid surfaces to one height so the sea does not step at every lod ring
+    vec3 rawQuadPos = extractPos(rawQuad);
+    vec3 quadStart = rawQuadPos;
+    float faceIndentation = extractFaceIndentation(faceData);
+    float depthOffset = faceIndentation/lodScale;
     quadStart += swizzelDataAxis(face>>1, vec3(faceSize.xz, mix(depthOffset, 1-depthOffset, float(face&1u))));
 
     quad.lodScale = lodScale;
     quad.axis = face>>1;
     quad.basePoint = (quadStart*lodScale)+vec3(baseSection<<5);
+
+    if (face == 1u && modelIsFluid(model)) {
+        float voxelTop = (rawQuadPos.y + 1.0)*lodScale + float(baseSection.y<<5);
+        if (voxelTop >= fluidSurfaceY && voxelTop - lodScale < fluidSurfaceY) {
+            quad.basePoint.y = fluidSurfaceY - faceIndentation;
+        }
+    }
     #ifdef USE_SINGLE_TRI
     quad.quadSizeAddin = (faceSize.yw + (quadSize - 1)*2);
     #else

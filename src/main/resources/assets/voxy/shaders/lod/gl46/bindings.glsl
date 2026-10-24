@@ -3,6 +3,8 @@ layout(binding = 0, std140) uniform SceneUniform {
     ivec3 baseSectionPos;
     uint frameId;
     vec3 cameraSubPos;
+    //Fluid surface height relative to baseSectionPos (NaN = disabled), integrated from voxy-seam-fix (MIT, HTRMC)
+    float fluidSurfaceY;
 };
 
 //TODO: see if making the stride 2*4*4 bytes or something cause you get that 16 byte write

@@ -39,4 +39,5 @@ accessible class com/mojang/blaze3d/platform/GlDebug$LogEntry
 #? if fabric {
 # Voxy server LoD streaming
 accessible method net/minecraft/server/level/ChunkMap readChunk (Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;
+accessible method net/minecraft/server/level/ChunkMap upgradeChunkTag (Lnet/minecraft/nbt/CompoundTag;)Lnet/minecraft/nbt/CompoundTag;
 #? }

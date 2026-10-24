@@ -203,6 +203,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
 
     private static void onServerStopping(MinecraftServer server) {
         ServerChunkChangeTracker.setEnabled(false);
+        ServerLodGenerator.reset();
         PLAYERS.clear();
         PENDING_ENABLE.clear();
         synchronized (ServerLodStreamer.class) {
@@ -303,6 +304,11 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         if (++tickCounter >= PUSH_INTERVAL_TICKS) {
             tickCounter = 0;
             pushChangedChunks(server);
+        }
+        try {
+            ServerLodGenerator.tick(server, workers, tickCounter);
+        } catch (Exception e) {
+            Logger.error("Voxy LoD generation tick failed", e);
         }
 
         var states = PLAYERS.entrySet().toArray(new Map.Entry[0]);
@@ -450,7 +456,10 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         int epoch = regionEpoch(dimension, request.pos);
 
         state.reading.incrementAndGet();
-        level.getChunkSource().chunkMap.readChunk(new ChunkPos(cx, cz)).handleAsync((tag, error) -> {
+        //Read the raw stored data and upgrade a copy: if the chunk is waiting to be saved, minecraft hands out the very
+        // tag object it is about to write, and upgrading it in place (like ChunkMap.readChunk does) makes the save fail
+        var chunkMap = level.getChunkSource().chunkMap;
+        chunkMap.read(new ChunkPos(cx, cz)).thenApplyAsync(stored -> stored.map(raw -> chunkMap.upgradeChunkTag(raw.copy())), workers).handleAsync((tag, error) -> {
             try {
                 if (error != null) {
                     Logger.warn("Failed to read chunk " + cx + "," + cz + " for LoD streaming: " + error);
@@ -471,28 +480,54 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
 
     //Push chunks that had block changes to the players that only see them as LoDs (outside their view distance)
     private static void pushChangedChunks(MinecraftServer server) {
-        int viewDistance = server.getPlayerList().getViewDistance();
-        long maxRadius = ServerLodConfig.CONFIG.maxRadiusChunks;
         ServerChunkChangeTracker.drain(server, (level, pos) -> {
             LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(pos), ChunkPos.getZ(pos));
             if (chunk == null) return;//Unloaded since, it will be read from disk with its new timestamp when requested
-            FriendlyByteBuf encoded = null;
-            for (var entry : PLAYERS.entrySet()) {
-                var player = server.getPlayerList().getPlayer(entry.getKey());
-                if (player == null || player.serverLevel() != level) continue;
-                var state = entry.getValue();
-                if (state.outboxBytes.get() > state.maxBacklog()) continue;//Player is already behind, it will catch up on reconnect
-                int dx = ChunkPos.getX(pos) - player.chunkPosition().x;
-                int dz = ChunkPos.getZ(pos) - player.chunkPosition().z;
-                //Inside the view distance the client gets the chunk (and voxy ingests it) the vanilla way
-                if (Math.max(Math.abs(dx), Math.abs(dz)) <= viewDistance + 1) continue;
-                if ((long) dx * dx + (long) dz * dz > maxRadius * maxRadius) continue;
-                if (encoded == null) {
-                    encoded = encodeLoaded(level, chunk, STATUS_PUSH);
-                }
-                state.enqueue(new FriendlyByteBuf(encoded.copy()));
-            }
+            pushLoadedChunk(server, level, chunk);
         });
+    }
+
+    //Send a loaded chunk to every streaming player that sees it only as a LoD (outside their view distance)
+    static void pushLoadedChunk(MinecraftServer server, ServerLevel level, LevelChunk chunk) {
+        int viewDistance = server.getPlayerList().getViewDistance();
+        long maxRadius = ServerLodConfig.CONFIG.maxRadiusChunks;
+        long pos = chunk.getPos().toLong();
+        FriendlyByteBuf encoded = null;
+        for (var entry : PLAYERS.entrySet()) {
+            var player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player == null || player.serverLevel() != level) continue;
+            var state = entry.getValue();
+            if (state.outboxBytes.get() > state.maxBacklog()) continue;//Player is already behind, it will catch up on reconnect
+            int dx = ChunkPos.getX(pos) - player.chunkPosition().x;
+            int dz = ChunkPos.getZ(pos) - player.chunkPosition().z;
+            //Inside the view distance the client gets the chunk (and voxy ingests it) the vanilla way
+            if (Math.max(Math.abs(dx), Math.abs(dz)) <= viewDistance + 1) continue;
+            if ((long) dx * dx + (long) dz * dz > maxRadius * maxRadius) continue;
+            if (encoded == null) {
+                encoded = encodeLoaded(level, chunk, STATUS_PUSH);
+            }
+            state.enqueue(new FriendlyByteBuf(encoded.copy()));
+        }
+    }
+
+    //Players currently receiving LoDs, the generator works around them
+    static java.util.List<ServerPlayer> streamingPlayers(MinecraftServer server) {
+        var list = new java.util.ArrayList<ServerPlayer>();
+        for (var uuid : PLAYERS.keySet()) {
+            var player = server.getPlayerList().getPlayer(uuid);
+            if (player != null) list.add(player);
+        }
+        return list;
+    }
+
+    //What the timestamp cache knows about a chunk: UNKNOWN_TIMESTAMP, CACHED_MISSING or its timestamp
+    static synchronized long cachedState(ResourceKey<Level> dimension, long pos) {
+        var cache = TIMESTAMP_CACHE.get(dimension);
+        return cache == null ? UNKNOWN_TIMESTAMP : cache.get(pos);
+    }
+
+    static boolean isCachedMissing(long state) {
+        return state == CACHED_MISSING;
     }
 
     private static FriendlyByteBuf encodeLoaded(ServerLevel level, LevelChunk chunk, byte status) {

@@ -49,7 +49,13 @@ public class MixinFogRenderer {
             float capturedFogEnd = noFogType ?
                 VoxyConfig.CONFIG.sectionRenderDistance * 32 * 16 : RenderSystem.getShaderFogEnd();
 
-            vrs.setCapturedFog(RenderSystem.getShaderFogStart(), capturedFogEnd, RenderSystem.getShaderFogColor());
+            float capturedFogStart = RenderSystem.getShaderFogStart();
+            //Thick fog (nether, foggy biomes) starts right in front of the camera which hides the lods completely,
+            // only keep a fade at the very edge of the lod render distance (idea from voxy-extra's nether fog fix)
+            if (thickFog && noFogType && VoxyConfig.CONFIG.fixNetherFog) {
+                capturedFogStart = capturedFogEnd * 0.85f;
+            }
+            vrs.setCapturedFog(capturedFogStart, capturedFogEnd, RenderSystem.getShaderFogColor());
 
             // Always hide vanilla terrain fog - either replaced by voxy or disabled completely
             // unless it's special fog, in that case it must be rendered to restrict vision in regular chunks

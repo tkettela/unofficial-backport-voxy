@@ -47,6 +47,13 @@ public class VoxyConfig
     //Maximum radius in chunks to request LoDs from the server (also limited by the server and the voxy render distance)
     public int serverLodRadius = 256;
 
+    //Pin lod water surfaces to one height so the sea does not step at every lod ring (from voxy-seam-fix)
+    public boolean fixLodWaterSeams = true;
+    //Keep lods visible in thick fog (nether, foggy biomes), fog only at the edge of the lod distance
+    public boolean fixNetherFog = true;
+    //Store lods by the server list name instead of the address, so they survive an address change
+    public boolean lodStorageByServerName = false;
+
     public String ssaoMode;
 
     public boolean useEnvironmentalFog = true;

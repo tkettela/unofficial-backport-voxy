@@ -164,10 +164,23 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         }
         MemoryUtil.memPutInt(ptr, viewport.frameId&0x7fffffff); ptr += 4;
         viewport.innerTranslation.getToAddress(ptr); ptr += 4*3;
+        //Fluid surface height for the lod water seam fix (integrated from voxy-seam-fix, MIT, HTRMC), NaN disables it
+        MemoryUtil.memPutFloat(ptr, getRelativeFluidSurfaceY(viewport.section.y)); ptr += 4;
 
         UploadStream.INSTANCE.commit();
     }
 
+
+    private static float getRelativeFluidSurfaceY(int baseSectionY) {
+        if (!me.cortex.voxy.client.config.VoxyConfig.CONFIG.fixLodWaterSeams) {
+            return Float.NaN;
+        }
+        var level = net.minecraft.client.Minecraft.getInstance().level;
+        if (level == null) {
+            return Float.NaN;
+        }
+        return (float) level.getSeaLevel() - (float) (baseSectionY << 5);
+    }
 
     private void bindRenderingBuffers(MDICViewport viewport) {
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, this.uniform.id);

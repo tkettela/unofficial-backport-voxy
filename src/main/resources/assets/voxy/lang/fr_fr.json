@@ -2,5 +2,15 @@
   "voxy.config.general.serverLod": "LoDs du serveur",
   "voxy.config.general.serverLod.tooltip": "Demande les LoDs aux serveurs qui ont Voxy installé : tu vois le terrain déjà généré par le serveur sans avoir besoin d'y aller",
   "voxy.config.general.serverLodRadius": "Rayon des LoDs serveur",
-  "voxy.config.general.serverLodRadius.tooltip": "Rayon maximum (en chunks) des LoDs demandés au serveur (aussi limité par la config du serveur et la distance de rendu Voxy)"
+  "voxy.config.general.serverLodRadius.tooltip": "Rayon maximum (en chunks) des LoDs demandés au serveur (aussi limité par la config du serveur et la distance de rendu Voxy)",
+  "voxy.config.general.lodStorageByServerName": "Ranger les LoDs par nom de serveur",
+  "voxy.config.general.lodStorageByServerName.tooltip": "Range les LoDs d'un serveur sous son nom dans la liste des serveurs au lieu de son adresse : ils sont gardés si l'adresse change (les LoDs existants sont déplacés)",
+  "voxy.config.general.fixLodWaterSeams": "Corriger les marches de l'eau",
+  "voxy.config.general.fixLodWaterSeams.tooltip": "Garde l'eau lointaine à une seule hauteur pour que la mer ne fasse pas de marches à chaque niveau de LoD",
+  "voxy.config.general.fixNetherFog": "LoDs dans le brouillard",
+  "voxy.config.general.fixNetherFog.tooltip": "Garde les LoDs visibles dans le Nether et les zones brumeuses, le brouillard n'est appliqué qu'au bord de la distance des LoDs",
+  "key.voxy.toggle_rendering": "Activer/désactiver Voxy",
+  "key.categories.voxy": "Voxy",
+  "voxy.toggle.on": "Rendu Voxy activé",
+  "voxy.toggle.off": "Rendu Voxy désactivé"
 }

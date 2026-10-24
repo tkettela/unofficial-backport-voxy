@@ -99,6 +99,27 @@ public class VoxyClientInstance extends VoxyInstance {
         DEFAULT_STORAGE_CONFIG = config;
     }
 
+    //Storage folder of a multiplayer server: by address by default, or by the server list name if enabled so the lods
+    // survive an address change (idea from voxy-extra's lod mirror). Existing lods stored by address are moved over.
+    private static Path resolveServerStorage(Path saves, String address, String serverName) {
+        Path byAddress = saves.resolve(address.replace(":", "_"));
+        if (!VoxyConfig.CONFIG.lodStorageByServerName || serverName == null || serverName.isBlank()) {
+            return byAddress;
+        }
+        String safeName = serverName.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
+        Path byName = saves.resolve("server_" + safeName);
+        if (!Files.exists(byName) && Files.isDirectory(byAddress)) {
+            try {
+                Files.move(byAddress, byName);
+                Logger.info("Moved voxy lods of " + address + " to the server name folder " + byName.getFileName());
+            } catch (Exception e) {
+                Logger.error("Failed to move voxy lods to the server name folder, keeping the address folder", e);
+                return byAddress;
+            }
+        }
+        return byName;
+    }
+
     private static Path getBasePath() {
         Path basePath = Minecraft.getInstance().gameDirectory.toPath().resolve(".voxy").resolve("saves");
         var iserver = Minecraft.getInstance().getSingleplayerServer();
@@ -118,7 +139,7 @@ public class VoxyClientInstance extends VoxyInstance {
                     if (info.isRealm()) {
                         basePath = basePath.resolve("realms");
                     } else {
-                        basePath = basePath.resolve(info.ip.replace(":", "_"));
+                        basePath = resolveServerStorage(basePath, info.ip, info.name);
                     }
                 }
             }

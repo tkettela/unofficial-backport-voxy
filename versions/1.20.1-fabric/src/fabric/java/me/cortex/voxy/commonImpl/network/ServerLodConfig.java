@@ -41,6 +41,13 @@ public class ServerLodConfig {
     public int workerThreads = 0;
     //Server tick time (ms) above which LoD streaming slows down to keep the server smooth
     public int targetTickTimeMs = 40;
+    //Generate never visited terrain around players in the background so their LoD view fills up (no need for chunky)
+    // note: generated chunks are saved like normal chunks, so the world grows on disk
+    public boolean autoGenerate = true;
+    //Radius in chunks around each player that gets generated (also limited by max_radius_chunks)
+    public int autoGenerateRadius = 128;
+    //Upper bound of chunks generating at the same time, lowered automatically when the server lags, 0 = automatic
+    public int autoGenerateMaxConcurrent = 0;
 
     private static ServerLodConfig loadOrCreate() {
         var path = getConfigPath();
@@ -83,6 +90,13 @@ public class ServerLodConfig {
         this.maxBytesPerSecondPerPlayer = Math.max(0, this.maxBytesPerSecondPerPlayer);
         this.workerThreads = Math.max(0, Math.min(this.workerThreads, 32));
         this.targetTickTimeMs = Math.max(10, Math.min(this.targetTickTimeMs, 200));
+        this.autoGenerateRadius = Math.max(0, Math.min(this.autoGenerateRadius, 4096));
+        this.autoGenerateMaxConcurrent = Math.max(0, Math.min(this.autoGenerateMaxConcurrent, 64));
+    }
+
+    public int getAutoGenerateMaxConcurrent() {
+        if (this.autoGenerateMaxConcurrent > 0) return this.autoGenerateMaxConcurrent;
+        return Math.max(2, Math.min(16, Runtime.getRuntime().availableProcessors() / 2));
     }
 
     public int getWorkerThreads() {

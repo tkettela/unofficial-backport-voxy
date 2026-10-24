@@ -18,7 +18,8 @@
   "entrypoints": {
     "client": [
       "me.cortex.voxy.client.FabricVoxyClient",
-      "me.cortex.voxy.client.network.ClientLodReceiver"
+      "me.cortex.voxy.client.network.ClientLodReceiver",
+      "me.cortex.voxy.client.network.VoxyToggleKey"
     ],
     "modmenu": [
       "me.cortex.voxy.client.config.ModMenuIntegration"
