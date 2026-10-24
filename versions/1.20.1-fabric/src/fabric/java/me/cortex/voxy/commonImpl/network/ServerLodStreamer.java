@@ -75,7 +75,14 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
     private static final int MAX_CACHED_TIMESTAMPS = 4_000_000;
     private static final long CACHED_MISSING = Long.MIN_VALUE + 1;
 
-    private record Request(ResourceKey<Level> dimension, long pos, long knownTimestamp) {}
+    //push: sent by the server on its own (chunk generated since the client asked, or a push that did not fit the backlog),
+    // answered with STATUS_PUSH and nothing at all if the chunk is not there
+    private record Request(ResourceKey<Level> dimension, long pos, long knownTimestamp, boolean push) {}
+    //A chunk that became fully loaded, checked on the next tick against what players were told is missing
+    private record LoadedChunk(ServerLevel level, long pos) {}
+    private static final ConcurrentLinkedQueue<LoadedChunk> LOADED = new ConcurrentLinkedQueue<>();
+    //Upper bound of positions remembered per player as "answered missing"
+    private static final int MAX_MISSING_SENT = 200_000;
 
     //A packet ready to be sent, plus what we learnt about the chunk while reading it (for the timestamp cache)
     private record Outgoing(FriendlyByteBuf buf, ResourceKey<Level> dimension, long pos, long cacheValue, int regionEpoch) {
@@ -92,6 +99,23 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         private double rate = INITIAL_SEND_RATE;
         private boolean wasRateLimited;
         private long sentBytes;
+        //Chunks this player asked for that did not exist yet, sent as soon as they get generated (by anyone)
+        private final java.util.Set<Long> missingSent = ConcurrentHashMap.newKeySet();
+
+        private void sendMissing(ResourceKey<Level> dimension, long pos) {
+            if (this.missingSent.size() >= MAX_MISSING_SENT) {
+                this.missingSent.clear();//The client retries on its own after a while
+            }
+            this.missingSent.add(pos);
+            this.enqueue(header(dimension, pos, STATUS_MISSING, 0));
+        }
+
+        //Sent later from memory or disk, used instead of dropping a push when the player is behind
+        private void deferPush(ResourceKey<Level> dimension, long pos) {
+            if (this.pending.size() < ServerLodConfig.CONFIG.maxInFlightPerPlayer * 8) {
+                this.pending.addFirst(new Request(dimension, pos, UNKNOWN_TIMESTAMP, true));
+            }
+        }
 
         //Dont prepare more than ~2 seconds of data ahead of what the connection can take
         private long maxBacklog() {
@@ -162,7 +186,11 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> ServerLodCommand.register(dispatcher));
 
         //A loaded chunk can change, so forget what we knew about it from disk
-        ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> invalidate(level, chunk.getPos().toLong()));
+        ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> {
+            invalidate(level, chunk.getPos().toLong());
+            //Also fires for freshly generated chunks: players that were told it is missing get it right away
+            if (!PLAYERS.isEmpty()) LOADED.add(new LoadedChunk(level, chunk.getPos().toLong()));
+        });
         ServerChunkEvents.CHUNK_UNLOAD.register((level, chunk) -> invalidate(level, chunk.getPos().toLong()));
 
         ServerPlayNetworking.registerGlobalReceiver(REQUEST, ServerLodStreamer::onRequest);
@@ -303,6 +331,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
     //Lines for /voxylod status
     static java.util.List<String> statusLines(MinecraftServer server) {
         var lines = new java.util.ArrayList<String>();
+        lines.add("Server tick: " + String.format(java.util.Locale.ROOT, "%.1f", server.getAverageTickTime()) + " ms (target " + ServerLodConfig.CONFIG.targetTickTimeMs + " ms)");
         lines.add("Streaming: " + (WORKERS != null ? "on" : "off") + ", " + PLAYERS.size() + " player(s), read budget " + readBudget + "/tick, " + workerCount + " workers, " + cachedTimestampCount() + " cached chunks");
         for (var entry : PLAYERS.entrySet()) {
             var player = server.getPlayerList().getPlayer(entry.getKey());
@@ -362,7 +391,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         }
         var requests = new Request[count];
         for (int i = 0; i < count; i++) {
-            requests[i] = new Request(dimension, buf.readLong(), buf.readLong());
+            requests[i] = new Request(dimension, buf.readLong(), buf.readLong(), false);
         }
         var uuid = player.getUUID();
         server.execute(() -> {
@@ -395,9 +424,22 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         if (PLAYERS.isEmpty()) {
             //Nobody to push to, dont let changes pile up
             ServerChunkChangeTracker.drain(server, (level, pos) -> {});
+            LOADED.clear();
             return;
         }
         var config = ServerLodConfig.CONFIG;
+
+        //Chunks that finished generating: send them to the players that asked for them before they existed
+        LoadedChunk loadedChunk;
+        while ((loadedChunk = LOADED.poll()) != null) {
+            for (var entry : PLAYERS.entrySet()) {
+                var state = entry.getValue();
+                if (state.missingSent.isEmpty() || !state.missingSent.remove(loadedChunk.pos)) continue;
+                var player = server.getPlayerList().getPlayer(entry.getKey());
+                if (player == null || player.serverLevel() != loadedChunk.level) continue;
+                state.deferPush(loadedChunk.level.dimension(), loadedChunk.pos);
+            }
+        }
 
         if (++tickCounter >= PUSH_INTERVAL_TICKS) {
             tickCounter = 0;
@@ -508,8 +550,9 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
     //Returns true if a disk read was started
     private static boolean process(ServerPlayer player, PlayerState state, Request request, ExecutorService workers) {
         ServerLevel level = player.serverLevel();
+        boolean push = request.push;
         if (!level.dimension().equals(request.dimension)) {
-            state.enqueue(header(request.dimension, request.pos, STATUS_MISSING, 0));
+            if (!push) state.enqueue(header(request.dimension, request.pos, STATUS_MISSING, 0));
             return false;
         }
 
@@ -519,14 +562,14 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         int dz = cz - player.chunkPosition().z;
         long maxRadius = ServerLodConfig.CONFIG.maxRadiusChunks + 2;
         if ((long) dx * dx + (long) dz * dz > maxRadius * maxRadius) {
-            state.enqueue(header(request.dimension, request.pos, STATUS_MISSING, 0));
+            if (!push) state.enqueue(header(request.dimension, request.pos, STATUS_MISSING, 0));
             return false;
         }
 
         //If the chunk is loaded and has unsaved changes the disk copy is outdated, send it straight from memory
         LevelChunk loaded = level.getChunkSource().getChunkNow(cx, cz);
         if (loaded != null && loaded.isUnsaved()) {
-            state.enqueue(encodeLoaded(level, loaded, STATUS_DATA));
+            state.enqueue(encodeLoaded(level, loaded, push ? STATUS_PUSH : STATUS_DATA));
             return true;//Encoding a loaded chunk happens on the server thread, count it in the budget
         }
 
@@ -538,7 +581,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
                 cached = cache == null ? UNKNOWN_TIMESTAMP : cache.get(request.pos);
             }
             if (cached == CACHED_MISSING) {
-                state.enqueue(header(request.dimension, request.pos, STATUS_MISSING, 0));
+                if (!push) state.sendMissing(request.dimension, request.pos);
                 return false;
             }
             if (cached != UNKNOWN_TIMESTAMP && known != UNKNOWN_TIMESTAMP && cached <= known) {
@@ -561,13 +604,20 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
             try {
                 if (error != null) {
                     Logger.warn("Failed to read chunk " + cx + "," + cz + " for LoD streaming: " + error);
-                    state.enqueue(header(dimension, request.pos, STATUS_MISSING, 0));
+                    if (!push) state.enqueue(header(dimension, request.pos, STATUS_MISSING, 0));
                 } else {
-                    state.enqueue(encodeStored(dimension, request.pos, known, tag, biomeRegistry, minSection, sectionCount, epoch));
+                    var out = encodeStored(dimension, request.pos, known, tag, biomeRegistry, minSection, sectionCount, epoch, push ? STATUS_PUSH : STATUS_DATA);
+                    if (out.cacheValue == CACHED_MISSING) {
+                        //Not generated yet: remember it so it is sent once it exists
+                        if (!push) state.missingSent.add(request.pos);
+                        if (!push) state.enqueue(out);
+                    } else {
+                        state.enqueue(out);
+                    }
                 }
             } catch (Throwable e) {
                 Logger.error("Failed to encode chunk " + cx + "," + cz + " for LoD streaming", e);
-                state.enqueue(header(dimension, request.pos, STATUS_MISSING, 0));
+                if (!push) state.enqueue(header(dimension, request.pos, STATUS_MISSING, 0));
             } finally {
                 state.reading.decrementAndGet();
             }
@@ -616,12 +666,17 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
             var player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null || player.serverLevel() != level) continue;
             var state = entry.getValue();
-            if (state.outboxBytes.get() > state.maxBacklog()) continue;//Player is already behind, it will catch up on reconnect
             int dx = ChunkPos.getX(pos) - player.chunkPosition().x;
             int dz = ChunkPos.getZ(pos) - player.chunkPosition().z;
             //Inside the view distance the client gets the chunk (and voxy ingests it) the vanilla way
             if (Math.max(Math.abs(dx), Math.abs(dz)) <= viewDistance + 1) continue;
             if ((long) dx * dx + (long) dz * dz > maxRadius * maxRadius) continue;
+            state.missingSent.remove(pos);
+            if (state.outboxBytes.get() > state.maxBacklog()) {
+                //Player is behind: send it later instead of losing it (read again from memory or disk then)
+                state.deferPush(level.dimension(), pos);
+                continue;
+            }
             if (encoded == null) {
                 encoded = encodeLoaded(level, chunk, STATUS_PUSH);
             }
@@ -676,7 +731,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         return layer == null ? null : layer.copy();
     }
 
-    private static Outgoing encodeStored(ResourceKey<Level> dimension, long pos, long knownTimestamp, Optional<CompoundTag> optionalTag, Registry<Biome> biomeRegistry, int minSection, int sectionCount, int epoch) {
+    private static Outgoing encodeStored(ResourceKey<Level> dimension, long pos, long knownTimestamp, Optional<CompoundTag> optionalTag, Registry<Biome> biomeRegistry, int minSection, int sectionCount, int epoch, byte dataStatus) {
         if (optionalTag.isEmpty()) {
             return new Outgoing(header(dimension, pos, STATUS_MISSING, 0), dimension, pos, CACHED_MISSING, epoch);
         }
@@ -740,7 +795,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
             }
         }
 
-        var buf = header(dimension, pos, STATUS_DATA, timestamp);
+        var buf = header(dimension, pos, dataStatus, timestamp);
         buf.writeVarInt(minSection);
         buf.writeVarInt(sectionCount);
         for (int i = 0; i < sectionCount; i++) {

@@ -207,7 +207,8 @@ public class ServerLodConfig {
 
     public int getAutoGenerateMaxConcurrent() {
         if (this.autoGenerateMaxConcurrent > 0) return this.autoGenerateMaxConcurrent;
-        return Math.max(2, Math.min(16, Runtime.getRuntime().availableProcessors() / 2));
+        //Generation mostly waits on minecraft's chunk pipeline, two chunks per core keeps it busy (measured, more does not help)
+        return Math.max(4, Math.min(32, Runtime.getRuntime().availableProcessors() * 2));
     }
 
     public int getWorkerThreads() {
