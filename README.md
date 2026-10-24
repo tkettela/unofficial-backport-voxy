@@ -102,24 +102,11 @@ it, they just get no server LoDs (only what they explore, like the official Voxy
 
 ## Getting the jar
 
-No ready-made jar is attached to releases, because Voxy's license does not allow redistributing it. You can get one
-in a few clicks in two ways.
+**No jar is distributed by this project** (no releases, no downloadable builds), because Voxy's license does not
+allow redistributing it. You build your own copy from the source, it only takes a double click and a few minutes.
+Please do not upload the jars you build either.
 
-### Option 1: download the build made by GitHub (easiest)
-
-Every change to this repository is built automatically by GitHub.
-
-1. Sign in to GitHub (a free account is enough).
-2. Open the [**Actions** tab](https://github.com/tkettela/unofficial-backport-voxy/actions/workflows/build.yml) of
-   this repository.
-3. Click the most recent run with a green check mark ✅.
-4. At the bottom of the page, under **Artifacts**, click **unofficial-backport-voxy-1.20.1-fabric**.
-5. You get the jar (`voxy-0.2.15-beta+1.20.1-fabric.jar`), if it comes as a `.zip`, extract it.
-
-Builds are kept for 90 days. If the list is empty or too old, anyone with write access can start a new one with the
-**Run workflow** button on the same page.
-
-### Option 2: build it yourself with one double click
+### Option 1: one double click (recommended)
 
 1. Install **Java 21** (for example [Temurin 21](https://adoptium.net/temurin/releases/?version=21), take the
    `.msi` installer on Windows and tick "Set JAVA_HOME").
@@ -132,7 +119,7 @@ Builds are kept for 90 days. If the list is empty or too old, anyone with write 
    later builds take less than a minute.
 5. The jar is in the `output` folder (the Windows script opens it for you).
 
-### Option 3: command line
+### Option 2: command line
 
 ```sh
 ./gradlew :1.20.1-fabric:build
@@ -337,7 +324,8 @@ option). Server: only its cache file in `world/data/voxy_lod_cache.bin`.
 | [Complementary Reimagined](https://modrinth.com/shader/complementary-reimagined) | EminGT | Complementary license | Shader pack used for testing, not included |
 
 **Voxy is © MCRcortex, all rights reserved.** This repository is a fork made with GitHub's fork feature and is
-published for people who want to build and use it themselves. **No jar is redistributed in releases.** All rights
+published for people who want to build and use it themselves. **No jar is redistributed** (no releases, no build
+artifacts, the GitHub workflow only checks that the code compiles). All rights
 to Voxy stay with its author: if Cortex asks for this repository to be taken down, it will be.
 The additions of this fork (server LoDs, generation, presets, commands) are provided as they are, without warranty.
 

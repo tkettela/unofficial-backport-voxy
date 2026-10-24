@@ -3,8 +3,9 @@
 Unofficial build of Voxy (LoD renderer) for Minecraft 1.20.1 Fabric, based on m3t4f1v3/voxy (`multiversion` branch,
 Voxy 0.2.15-beta, Stonecutter multi-version build). Work happens on the `server-lod` branch.
 Voxy is "All rights reserved, do not redistribute": the public repository is a GitHub fork of MCRcortex/voxy
-(tkettela/unofficial-backport-voxy), never attach jars to releases. Jars come from the `build.yml` Actions artifact
-or from `build-windows.bat` / `build.sh`. Keep README.md and README.fr.md in sync when features change.
+(tkettela/unofficial-backport-voxy). Never publish jars anywhere: no releases and no Actions artifacts (`build.yml`
+only checks that it compiles), users build with `build-windows.bat` / `build.sh`. Keep README.md and README.fr.md in
+sync when features change.
 
 ## Build
 - Only the 1.20.1 Fabric variant is used: `./gradlew :1.20.1-fabric:build` (Java 21, first build ~5 min)

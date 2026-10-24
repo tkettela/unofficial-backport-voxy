@@ -1,4 +1,7 @@
-name: Build the mod jar
+name: Check that it builds
+
+# Only checks that the 1.20.1 Fabric version compiles. The jar is NOT uploaded anywhere:
+# Voxy's license does not allow redistributing it, everyone builds their own (see README).
 
 on:
   push:
@@ -25,10 +28,3 @@ jobs:
 
       - name: Build 1.20.1 Fabric
         run: chmod +x gradlew && ./gradlew -I init.gradle :1.20.1-fabric:build -x test
-
-      - name: Upload the jar
-        uses: actions/upload-artifact@v4
-        with:
-          name: unofficial-backport-voxy-1.20.1-fabric
-          path: versions/1.20.1-fabric/build/libs/voxy-*-fabric.jar
-          retention-days: 90

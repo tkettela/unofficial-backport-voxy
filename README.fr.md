@@ -102,23 +102,11 @@ qui l'ont, ils n'ont simplement pas de LoD serveur (seulement ce qu'ils exploren
 
 ## Obtenir le jar
 
-Aucun jar tout fait n'est publié en « release », parce que la licence de Voxy n'autorise pas à le redistribuer.
-Tu peux en obtenir un en quelques clics, de deux façons.
+**Ce projet ne distribue aucun jar** (ni release, ni version compilée à télécharger), parce que la licence de Voxy
+n'autorise pas à le redistribuer. Chacun compile sa propre copie à partir du code source : un double-clic et
+quelques minutes suffisent. Merci de ne pas mettre en ligne les jars que tu compiles non plus.
 
-### Méthode 1 : télécharger la version compilée par GitHub (la plus simple)
-
-Chaque modification de ce dépôt est compilée automatiquement par GitHub.
-
-1. Connecte-toi à GitHub (un compte gratuit suffit).
-2. Ouvre l'[onglet **Actions**](https://github.com/tkettela/unofficial-backport-voxy/actions/workflows/build.yml) de ce dépôt.
-3. Clique sur la compilation la plus récente avec une coche verte ✅.
-4. En bas de la page, dans **Artifacts**, clique sur **unofficial-backport-voxy-1.20.1-fabric**.
-5. Tu obtiens le jar (`voxy-0.2.15-beta+1.20.1-fabric.jar`). S'il arrive dans un `.zip`, décompresse-le.
-
-Les compilations sont gardées 90 jours. Si la liste est vide ou trop ancienne, une personne avec les droits
-d'écriture peut en relancer une avec le bouton **Run workflow** sur la même page.
-
-### Méthode 2 : le compiler toi-même en un double-clic
+### Méthode 1 : un double-clic (recommandé)
 
 1. Installe **Java 21** (par exemple [Temurin 21](https://adoptium.net/temurin/releases/?version=21), prends
    l'installeur `.msi` sous Windows et coche « Set JAVA_HOME »).
@@ -131,7 +119,7 @@ d'écriture peut en relancer une avec le bouton **Run workflow** sur la même pa
    environ 5 minutes, les suivantes moins d'une minute.
 5. Le jar est dans le dossier `output` (le script Windows l'ouvre pour toi).
 
-### Méthode 3 : en ligne de commande
+### Méthode 2 : en ligne de commande
 
 ```sh
 ./gradlew :1.20.1-fabric:build
@@ -339,7 +327,8 @@ l'option). Serveur : seulement son fichier de cache `world/data/voxy_lod_cache.b
 | [Complementary Reimagined](https://modrinth.com/shader/complementary-reimagined) | EminGT | Licence Complementary | Pack de shaders utilisé pour les tests, non inclus |
 
 **Voxy est © MCRcortex, tous droits réservés.** Ce dépôt est un fork créé avec la fonction fork de GitHub et publié
-pour les personnes qui veulent le compiler et l'utiliser elles-mêmes. **Aucun jar n'est redistribué en release.**
+pour les personnes qui veulent le compiler et l'utiliser elles-mêmes. **Aucun jar n'est redistribué** (ni release,
+ni version compilée à télécharger, le workflow GitHub vérifie seulement que le code compile).
 Tous les droits sur Voxy restent à son auteur : si Cortex demande le retrait de ce dépôt, il sera retiré.
 Les ajouts de ce fork (LoD serveur, génération, préréglages, commandes) sont fournis tels quels, sans garantie.
 
