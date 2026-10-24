@@ -29,6 +29,7 @@
   "key.categories.voxy": "Voxy",
   "voxy.toggle.on": "Voxy rendering enabled",
   "voxy.toggle.off": "Voxy rendering disabled",
+  "voxy.serverlod.version_mismatch": "Voxy: this server uses another version of the mod (server protocol %s, yours %s), server LoDs are disabled. Use the same voxy jar on the client and the server.",
 
   "voxy.config.general.rendering": "Voxy Rendering",
   "voxy.config.general.rendering.tooltip": "Enables or disables voxy rendering",

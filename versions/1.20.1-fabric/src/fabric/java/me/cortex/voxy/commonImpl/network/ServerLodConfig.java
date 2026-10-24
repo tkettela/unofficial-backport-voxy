@@ -48,6 +48,65 @@ public class ServerLodConfig {
     public int autoGenerateRadius = 128;
     //Upper bound of chunks generating at the same time, lowered automatically when the server lags, 0 = automatic
     public int autoGenerateMaxConcurrent = 0;
+    //Also generate in singleplayer/LAN worlds (off by default so singleplayer saves dont grow unexpectedly)
+    public boolean autoGenerateOnIntegratedServer = false;
+    //Push chunks that had block changes to players that see them as LoDs
+    public boolean liveUpdates = true;
+    //Minimum time between two live updates of the same chunk (redstone/farms change constantly)
+    public int liveUpdateMinIntervalSeconds = 30;
+    //Keep the "what is on disk" cache over restarts so the first reconnects after a restart stay fast
+    public boolean persistTimestampCache = true;
+
+    //Settings that can be changed in game with /voxylod config, in display order
+    public static final java.util.List<String> EDITABLE = java.util.List.of(
+            "enabled", "enabledOnIntegratedServer", "maxRadiusChunks", "maxChunkReadsPerTick", "maxInFlightPerPlayer",
+            "maxBytesPerSecondPerPlayer", "workerThreads", "targetTickTimeMs", "autoGenerate", "autoGenerateRadius",
+            "autoGenerateMaxConcurrent", "autoGenerateOnIntegratedServer", "liveUpdates", "liveUpdateMinIntervalSeconds",
+            "persistTimestampCache");
+
+    public Object get(String key) {
+        try {
+            return ServerLodConfig.class.getField(key).get(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException("Unknown setting " + key);
+        }
+    }
+
+    public boolean isBoolean(String key) {
+        try {
+            return ServerLodConfig.class.getField(key).getType() == boolean.class;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException("Unknown setting " + key);
+        }
+    }
+
+    //Sets a value from text, applies the limits and saves, returns the value actually stored
+    public Object set(String key, String value) {
+        if (!EDITABLE.contains(key)) throw new IllegalArgumentException("Unknown setting " + key);
+        try {
+            var field = ServerLodConfig.class.getField(key);
+            if (field.getType() == boolean.class) {
+                String v = value.trim().toLowerCase(java.util.Locale.ROOT);
+                if (v.equals("true") || v.equals("on") || v.equals("1")) field.setBoolean(this, true);
+                else if (v.equals("false") || v.equals("off") || v.equals("0")) field.setBoolean(this, false);
+                else throw new IllegalArgumentException("Expected true or false");
+            } else {
+                field.setInt(this, Integer.parseInt(value.trim()));
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Expected a number");
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException("Unknown setting " + key);
+        }
+        this.sanitize();
+        this.save();
+        return this.get(key);
+    }
+
+    //Reloads the file from disk (after editing it by hand)
+    public static void reload() {
+        CONFIG = loadOrCreate();
+    }
 
     private static ServerLodConfig loadOrCreate() {
         var path = getConfigPath();
@@ -92,6 +151,7 @@ public class ServerLodConfig {
         this.targetTickTimeMs = Math.max(10, Math.min(this.targetTickTimeMs, 200));
         this.autoGenerateRadius = Math.max(0, Math.min(this.autoGenerateRadius, 4096));
         this.autoGenerateMaxConcurrent = Math.max(0, Math.min(this.autoGenerateMaxConcurrent, 64));
+        this.liveUpdateMinIntervalSeconds = Math.max(0, Math.min(this.liveUpdateMinIntervalSeconds, 3600));
     }
 
     public int getAutoGenerateMaxConcurrent() {

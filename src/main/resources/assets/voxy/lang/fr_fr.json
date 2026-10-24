@@ -12,5 +12,6 @@
   "key.voxy.toggle_rendering": "Activer/désactiver Voxy",
   "key.categories.voxy": "Voxy",
   "voxy.toggle.on": "Rendu Voxy activé",
-  "voxy.toggle.off": "Rendu Voxy désactivé"
+  "voxy.toggle.off": "Rendu Voxy désactivé",
+  "voxy.serverlod.version_mismatch": "Voxy : ce serveur utilise une autre version du mod (protocole serveur %s, le tien %s), les LoDs du serveur sont désactivés. Mets le même jar Voxy sur le client et le serveur."
 }

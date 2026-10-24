@@ -19,6 +19,7 @@ import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
@@ -84,18 +85,33 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             this.timestamps.defaultReturnValue(UNKNOWN_TIMESTAMP);
         }
 
-        private void restartSpiral(int x, int z) {
+        //Direction the player was looking when the spiral started, the first pass only requests that half
+        private double dirX, dirZ;
+        private int pass;
+
+        private void restartSpiral(int x, int z, double dirX, double dirZ) {
             this.centerX = x;
             this.centerZ = z;
             this.ring = 0;
             this.ringIndex = 0;
             this.spiralStarted = true;
+            this.dirX = dirX;
+            this.dirZ = dirZ;
+            this.pass = 0;
+        }
+
+        private boolean skipThisPass(int dx, int dz) {
+            return this.pass == 0 && (dx * this.dirX + dz * this.dirZ) < 0;
         }
 
         //Returns the next position offset in the square spiral or null if past the radius
         private long nextOffset(int radius) {
             if (this.ring > radius) {
-                return Long.MAX_VALUE;
+                if (this.pass != 0) return Long.MAX_VALUE;
+                //Front half done, now everything else
+                this.pass = 1;
+                this.ring = 0;
+                this.ringIndex = 0;
             }
             int r = this.ring;
             int dx, dz;
@@ -152,6 +168,12 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
         int version = buf.readVarInt();
         if (version != PROTOCOL_VERSION) {
             Logger.warn("Server uses an incompatible voxy LoD protocol version (" + version + ", expected " + PROTOCOL_VERSION + "), not using server LoDs");
+            //Tell the player instead of silently not streaming, client and server need the same voxy jar
+            client.execute(() -> {
+                if (client.player != null) {
+                    client.player.displayClientMessage(Component.translatable("voxy.serverlod.version_mismatch", version, PROTOCOL_VERSION).withStyle(net.minecraft.ChatFormatting.GOLD), false);
+                }
+            });
             return;
         }
         int radius = buf.readVarInt();
@@ -216,7 +238,9 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             while ((missingPos = s.missing.poll()) != null) {
                 s.requested.remove((long) missingPos);
             }
-            s.restartSpiral(px, pz);
+            var look = player.getLookAngle();
+            double length = Math.sqrt(look.x * look.x + look.z * look.z);
+            s.restartSpiral(px, pz, length < 1.0E-3 ? 0 : look.x / length, length < 1.0E-3 ? 0 : look.z / length);
             s.spiralFinishedAt = -1;
         }
 
@@ -242,6 +266,7 @@ public final class ClientLodReceiver implements net.fabricmc.api.ClientModInitia
             int dx = ChunkPos.getX(offset);
             int dz = ChunkPos.getZ(offset);
             if ((long) dx * dx + (long) dz * dz > radiusSq) continue;
+            if (s.skipThisPass(dx, dz)) continue;//What the player looks at first
             //Voxy only ingests vanilla chunks that have all their neighbours loaded, so the outer rings of the vanilla
             // render distance never get ingested, request those from the server too (the inner part is ingested normally)
             if (Math.max(Math.abs(dx), Math.abs(dz)) < vanillaRadius - VANILLA_EDGE_RINGS) continue;

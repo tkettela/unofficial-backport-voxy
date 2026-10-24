@@ -159,6 +159,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         ServerLifecycleEvents.SERVER_STARTED.register(ServerLodStreamer::onServerStarted);
         ServerLifecycleEvents.SERVER_STOPPING.register(ServerLodStreamer::onServerStopping);
         ServerTickEvents.END_SERVER_TICK.register(ServerLodStreamer::tick);
+        net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> ServerLodCommand.register(dispatcher));
 
         //A loaded chunk can change, so forget what we knew about it from disk
         ServerChunkEvents.CHUNK_LOAD.register((level, chunk) -> invalidate(level, chunk.getPos().toLong()));
@@ -184,32 +185,52 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         return config.enabled && config.maxRadiusChunks > 0 && (server.isDedicatedServer() || config.enabledOnIntegratedServer);
     }
 
-    private static void onServerStarted(MinecraftServer server) {
-        if (!isEnabled(server)) {
-            Logger.info("Voxy server LoD streaming disabled");
-            return;
-        }
-        int threads = ServerLodConfig.CONFIG.getWorkerThreads();
+    private static int workerCount;
+
+    private static ExecutorService createWorkers(int threads) {
         AtomicInteger counter = new AtomicInteger();
-        WORKERS = Executors.newFixedThreadPool(threads, r -> {
+        return Executors.newFixedThreadPool(threads, r -> {
             var thread = new Thread(r, "Voxy LoD Streaming Worker #" + counter.incrementAndGet());
             thread.setDaemon(true);
             thread.setPriority(Thread.MIN_PRIORITY + 1);
             return thread;
         });
-        ServerChunkChangeTracker.setEnabled(true);
-        Logger.info("Voxy server LoD streaming enabled (adaptive), radius " + ServerLodConfig.CONFIG.maxRadiusChunks + " chunks, " + threads + " worker threads");
     }
 
-    private static void onServerStopping(MinecraftServer server) {
+    private static void onServerStarted(MinecraftServer server) {
+        if (ServerLodConfig.CONFIG.persistTimestampCache) {
+            ServerLodCachePersistence.load(server);
+        }
+        if (!isEnabled(server)) {
+            Logger.info("Voxy server LoD streaming disabled");
+            return;
+        }
+        startStreaming(server);
+    }
+
+    private static void startStreaming(MinecraftServer server) {
+        if (WORKERS != null) return;
+        workerCount = ServerLodConfig.CONFIG.getWorkerThreads();
+        WORKERS = createWorkers(workerCount);
+        ServerChunkChangeTracker.setEnabled(true);
+        //Players already online (when enabled in game) get streaming too
+        for (var player : server.getPlayerList().getPlayers()) {
+            PENDING_ENABLE.add(player.getUUID());
+        }
+        Logger.info("Voxy server LoD streaming enabled (adaptive), radius " + ServerLodConfig.CONFIG.maxRadiusChunks + " chunks, " + workerCount + " worker threads");
+    }
+
+    private static void stopStreaming(MinecraftServer server) {
+        //Tell the clients to stop asking (radius 0)
+        for (var uuid : PLAYERS.keySet()) {
+            var player = server.getPlayerList().getPlayer(uuid);
+            if (player != null) sendConfig(player, 0);
+        }
         ServerChunkChangeTracker.setEnabled(false);
         ServerLodGenerator.reset();
+        LAST_PUSH.clear();
         PLAYERS.clear();
         PENDING_ENABLE.clear();
-        synchronized (ServerLodStreamer.class) {
-            TIMESTAMP_CACHE.clear();
-            REGION_EPOCHS.clear();
-        }
         var workers = WORKERS;
         WORKERS = null;
         if (workers != null) {
@@ -218,6 +239,88 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
                 workers.awaitTermination(5, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {}
         }
+    }
+
+    private static void onServerStopping(MinecraftServer server) {
+        stopStreaming(server);
+        if (ServerLodConfig.CONFIG.persistTimestampCache) {
+            ServerLodCachePersistence.save(server, TIMESTAMP_CACHE);
+        }
+        synchronized (ServerLodStreamer.class) {
+            TIMESTAMP_CACHE.clear();
+            REGION_EPOCHS.clear();
+        }
+    }
+
+    //Called after a setting was changed in game, applies it without a restart
+    static void onConfigChanged(MinecraftServer server) {
+        var config = ServerLodConfig.CONFIG;
+        if (!isEnabled(server)) {
+            if (WORKERS != null) {
+                stopStreaming(server);
+                Logger.info("Voxy server LoD streaming disabled");
+            }
+            return;
+        }
+        if (WORKERS == null) {
+            startStreaming(server);
+            return;
+        }
+        if (config.getWorkerThreads() != workerCount) {
+            //Swap the pool, running reads finish on the old one
+            var old = WORKERS;
+            workerCount = config.getWorkerThreads();
+            WORKERS = createWorkers(workerCount);
+            //Reads still in flight complete on the old pool, so only shut it down once they are done
+            java.util.concurrent.CompletableFuture.delayedExecutor(30, TimeUnit.SECONDS).execute(old::shutdown);
+        }
+        //Clients learn the radius and the request limit from the config packet, resend it
+        for (var uuid : PLAYERS.keySet()) {
+            var player = server.getPlayerList().getPlayer(uuid);
+            if (player != null) sendConfig(player, config.maxRadiusChunks);
+        }
+    }
+
+    static synchronized void clearTimestampCache() {
+        TIMESTAMP_CACHE.clear();
+    }
+
+    static synchronized int cachedTimestampCount() {
+        int count = 0;
+        for (var map : TIMESTAMP_CACHE.values()) count += map.size();
+        return count;
+    }
+
+    static synchronized void restoreTimestampCache(ResourceKey<Level> dimension, Long2LongOpenHashMap entries) {
+        var cache = TIMESTAMP_CACHE.computeIfAbsent(dimension, k -> {
+            var map = new Long2LongOpenHashMap();
+            map.defaultReturnValue(UNKNOWN_TIMESTAMP);
+            return map;
+        });
+        cache.putAll(entries);
+    }
+
+    //Lines for /voxylod status
+    static java.util.List<String> statusLines(MinecraftServer server) {
+        var lines = new java.util.ArrayList<String>();
+        lines.add("Streaming: " + (WORKERS != null ? "on" : "off") + ", " + PLAYERS.size() + " player(s), read budget " + readBudget + "/tick, " + workerCount + " workers, " + cachedTimestampCount() + " cached chunks");
+        for (var entry : PLAYERS.entrySet()) {
+            var player = server.getPlayerList().getPlayer(entry.getKey());
+            var state = entry.getValue();
+            lines.add(" - " + (player == null ? entry.getKey().toString() : player.getGameProfile().getName())
+                    + ": " + (long) (state.rate / 1024) + " KB/s max, " + state.pending.size() + " pending, " + state.reading.get()
+                    + " reading, " + (state.outboxBytes.get() / 1024) + " KB queued, " + (state.sentBytes / (1024 * 1024)) + " MB sent");
+        }
+        lines.addAll(ServerLodGenerator.statusLines(server));
+        return lines;
+    }
+
+    private static void sendConfig(ServerPlayer player, int radius) {
+        var buf = new FriendlyByteBuf(Unpooled.buffer());
+        buf.writeVarInt(PROTOCOL_VERSION);
+        buf.writeVarInt(radius);
+        buf.writeVarInt(ServerLodConfig.CONFIG.maxInFlightPerPlayer);
+        ServerPlayNetworking.send(player, CONFIG, buf);
     }
 
     private static long regionKey(long pos) {
@@ -243,12 +346,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         if (!ServerPlayNetworking.canSend(player, CONFIG) || !ServerPlayNetworking.canSend(player, CHUNK)) return;
 
         PLAYERS.put(player.getUUID(), new PlayerState());
-
-        var buf = new FriendlyByteBuf(Unpooled.buffer());
-        buf.writeVarInt(PROTOCOL_VERSION);
-        buf.writeVarInt(ServerLodConfig.CONFIG.maxRadiusChunks);
-        buf.writeVarInt(ServerLodConfig.CONFIG.maxInFlightPerPlayer);
-        ServerPlayNetworking.send(player, CONFIG, buf);
+        sendConfig(player, ServerLodConfig.CONFIG.maxRadiusChunks);
         Logger.info("Enabled LoD streaming for " + player.getGameProfile().getName());
     }
 
@@ -459,7 +557,7 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
         //Read the raw stored data and upgrade a copy: if the chunk is waiting to be saved, minecraft hands out the very
         // tag object it is about to write, and upgrading it in place (like ChunkMap.readChunk does) makes the save fail
         var chunkMap = level.getChunkSource().chunkMap;
-        chunkMap.read(new ChunkPos(cx, cz)).thenApplyAsync(stored -> stored.map(raw -> chunkMap.upgradeChunkTag(raw.copy())), workers).handleAsync((tag, error) -> {
+        chunkMap.read(new ChunkPos(cx, cz)).thenApplyAsync(stored -> stored.map(raw -> chunkMap.upgradeChunkTag(raw)), workers).handleAsync((tag, error) -> {
             try {
                 if (error != null) {
                     Logger.warn("Failed to read chunk " + cx + "," + cz + " for LoD streaming: " + error);
@@ -479,12 +577,33 @@ public final class ServerLodStreamer implements net.fabricmc.api.ModInitializer 
     }
 
     //Push chunks that had block changes to the players that only see them as LoDs (outside their view distance)
+    //Per dimension: chunk -> last time it was pushed, so constantly changing chunks (farms, redstone) are not resent
+    // every few seconds. Only accessed from the server thread.
+    private static final Map<ResourceKey<Level>, Long2LongOpenHashMap> LAST_PUSH = new HashMap<>();
+
     private static void pushChangedChunks(MinecraftServer server) {
+        var config = ServerLodConfig.CONFIG;
+        long now = System.currentTimeMillis();
+        long minInterval = config.liveUpdateMinIntervalSeconds * 1000L;
         ServerChunkChangeTracker.drain(server, (level, pos) -> {
+            if (!config.liveUpdates) return;
+            var lastPush = LAST_PUSH.computeIfAbsent(level.dimension(), k -> new Long2LongOpenHashMap());
+            if (now - lastPush.get(pos) < minInterval) {
+                //Pushed recently, keep it for a later round so the final state still gets sent
+                ServerChunkChangeTracker.markChanged(level.dimension(), pos);
+                return;
+            }
             LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(pos), ChunkPos.getZ(pos));
             if (chunk == null) return;//Unloaded since, it will be read from disk with its new timestamp when requested
+            lastPush.put(pos, now);
             pushLoadedChunk(server, level, chunk);
         });
+        //Forget old entries so the map does not grow forever
+        for (var lastPush : LAST_PUSH.values()) {
+            if (lastPush.size() > 50_000) {
+                lastPush.long2LongEntrySet().removeIf(e -> now - e.getLongValue() > minInterval);
+            }
+        }
     }
 
     //Send a loaded chunk to every streaming player that sees it only as a LoD (outside their view distance)

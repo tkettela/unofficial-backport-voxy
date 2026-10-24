@@ -5,6 +5,7 @@
   "mixins": [
     "AccessorConnection",
     "AccessorServerGamePacketListener",
+    "MixinChunkStorageCopy",
     "MixinLevelChunkChanges"
   ],
   "injectors": {
